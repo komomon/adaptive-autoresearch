@@ -1,0 +1,185 @@
+experiment:
+  name: authscan-benchmarkjava-sdk-smoke
+  profile: authz-and-identity
+  adapter: claudecode
+  versioning:
+    backend: git
+  target_project:
+    kind: skill
+    repo_path: D:/ccode/aicode/gitcode/back/authscan-2
+    invocation:
+      mode: claude-agent-sdk-python
+      cwd: D:/ccode/aicode/gitcode/back/authscan-2
+      model: qwen3.6-plus
+      api_key_env: DASHSCOPE_API_KEY
+      base_url: https://dashscope.aliyuncs.com/apps/anthropic
+      prompt_template: |
+        You are inside the authscan target project.
+        Follow the loaded authscan skill and its referenced methodology files.
+        Analyze exactly one case against the repository indicated below.
+        This is a smoke invocation for the target project call chain; do not read evaluation labels as answers.
+
+        Case:
+        {case_json}
+      system_prompt: |
+        Use the target project's own methodology.
+        Prefer code-grounded reasoning.
+        If the case does not fit authorization analysis, say so explicitly instead of inventing authorization findings.
+      allowed_tools:
+        - Read
+        - Glob
+        - Grep
+      permission_mode: default
+      max_turns: 12
+      timeout_seconds: 240
+      max_attempts: 2
+      retry_backoff_seconds: 2
+      output:
+        mode: text-stdout
+      canonicalization:
+        enabled: true
+        runner: script
+        script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
+        mode: openai-compatible-chat
+        model: qwen3.6-plus
+        api_key_env: DASHSCOPE_API_KEY
+        base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        timeout_seconds: 120
+      fallback_invocation:
+        mode: openai-compatible-chat
+        cwd: D:/ccode/aicode/gitcode/back/authscan-2
+        model: qwen3.6-plus
+        api_key_env: DASHSCOPE_API_KEY
+        base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        timeout_seconds: 180
+        preload_files:
+          - SKILL.md
+          - reference/recon.md
+          - reference/endpoint-analysis.md
+          - reference/output-analysis.md
+          - reference/trust-propagation-rules.md
+          - reference/datasink-patterns.md
+        prompt_template: |
+          You are inside the authscan target project.
+          Follow the preloaded skill and methodology files below.
+          Analyze exactly one case against the repository indicated below.
+          This fallback path exists only to keep the target-project call chain stable when the SDK path is unavailable.
+          Do not read evaluation labels as answers.
+
+          {preloaded_files}
+
+          Case:
+          {case_json}
+        system_prompt: |
+          Use the target project's own methodology.
+          Prefer code-grounded reasoning.
+          If the case does not fit authorization analysis, say so explicitly instead of inventing authorization findings.
+        canonicalization:
+          enabled: true
+          runner: script
+          script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
+          mode: openai-compatible-chat
+          model: qwen3.6-plus
+          api_key_env: DASHSCOPE_API_KEY
+          base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+          timeout_seconds: 120
+    result_contract: target-audit-result
+    optimization_policy:
+      methodology_first: true
+      minimum_necessary_change: true
+      allowed_axes:
+        - role_split
+        - dispatch_strategy
+        - checkpoint_policy
+        - evidence_schema
+        - verifier_strength
+        - context_packing
+        - output_normalization
+      forbidden_axes:
+        - vulnerability_keyword_rules
+        - field_name_shortcuts
+        - framework_specific_special_cases
+        - evaluation_set_memorization
+    editable_scope:
+      - ./
+    read_only_scope: []
+
+dataset:
+  source:
+    kind: jsonl
+    path: ./adaptive-autoresearch/examples/smoke/benchmarkjava-two-cases.jsonl
+  normalize_to: ./adaptive-autoresearch/examples/smoke/benchmarkjava-two-cases.jsonl
+  split:
+    dev: 0.50
+    holdout: 0.25
+    cross_repo: 0.15
+    canary: 0.10
+
+execution:
+  modes:
+    - foreground
+  resume_completed_cases: true
+  candidate_evaluation:
+    strategy: staged
+  case_retry:
+    max_attempts: 2
+    backoff_seconds: 2
+  packet:
+    max_primary_change_count: 1
+    max_dev_cases_per_round: 2
+    require_checkpoint_after_each_chain_extension: true
+  topology:
+    default: S1
+    escalation_order:
+      - S1
+      - S2
+      - S3
+
+grading:
+  primary_metric: verdict_match
+  result_contract: target-audit-result
+  match_rules:
+    require_verdict_match: true
+    require_type_match_when_available: false
+    require_evidence_for_high_confidence: true
+  aggregate_metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1
+  secondary_metrics:
+    - evidence_adequacy
+    - chain_completeness
+  keep_gate:
+    require_dev_improvement: true
+    require_holdout_non_regression: true
+    require_cross_repo_non_regression: true
+    require_evidence_non_regression: true
+    require_high_confidence_fp_non_regression: true
+
+optimization:
+  proposal:
+    mode: openai-compatible-chat
+    model: qwen3.6-plus
+    api_key_env: DASHSCOPE_API_KEY
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    timeout_seconds: 120
+    temperature: 0.0
+  apply:
+    mode: claude-agent-sdk-python
+    model: qwen3.6-plus
+    api_key_env: DASHSCOPE_API_KEY
+    base_url: https://dashscope.aliyuncs.com/apps/anthropic
+    permission_mode: acceptEdits
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Edit
+      - MultiEdit
+      - Write
+    max_turns: 16
+    timeout_seconds: 300
+
+outputs:
+  run_root: ./autoresearch-results

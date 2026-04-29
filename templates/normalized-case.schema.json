@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NormalizedCase",
+  "type": "object",
+  "required": [
+    "case_id",
+    "repo",
+    "entry",
+    "expected"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo": {
+      "type": "object",
+      "required": [
+        "url",
+        "branch"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit_hint": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "entry": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "http",
+            "rpc",
+            "cli",
+            "mq",
+            "scheduler",
+            "file",
+            "internal-service",
+            "other"
+          ]
+        },
+        "language": {
+          "type": "string",
+          "minLength": 1
+        },
+        "module_hint": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "expected": {
+      "type": "object",
+      "required": [
+        "has_vulnerability"
+      ],
+      "properties": {
+        "has_vulnerability": {
+          "type": "boolean"
+        },
+        "vulnerability_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vuln_function_or_line": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "severity": {
+          "type": "string"
+        },
+        "key_anchor": {
+          "type": "string"
+        },
+        "key_sink": {
+          "type": "string"
+        },
+        "business_invariant": {
+          "type": "string"
+        },
+        "actor_model": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "notes": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "normalization": {
+      "type": "object",
+      "properties": {
+        "source_row": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "inferred_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missing_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "needs_llm_review": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

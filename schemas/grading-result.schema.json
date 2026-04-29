@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GradingResult",
+  "type": "object",
+  "required": [
+    "verdict_match",
+    "evidence_adequacy",
+    "chain_completeness",
+    "confidence_calibration",
+    "secondary_scores",
+    "keep_recommendation"
+  ],
+  "properties": {
+    "verdict_match": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "evidence_adequacy": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "chain_completeness": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "confidence_calibration": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "secondary_scores": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "keep_recommendation": {
+      "type": "string",
+      "enum": [
+        "keep",
+        "discard",
+        "refine",
+        "blocked"
+      ]
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

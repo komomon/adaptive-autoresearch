@@ -1,0 +1,37 @@
+profile:
+  name: traditional-sink-driven
+  objective: improve sink-driven vulnerability analysis while preserving guard awareness and evidence quality
+  recommended_for:
+    - sqli
+    - command-exec
+    - path-traversal
+    - ssrf
+    - deserialization
+    - file-read-write
+    - upload-download
+
+inherits:
+  - generic-vuln-audit
+
+core_model:
+  - EntryPoint
+  - InfluencePath
+  - Sink
+  - Guard
+  - Verdict
+
+domain_roles:
+  - sink-interest-agent
+  - path-explore-agent
+  - path-verify-agent
+
+must_cover:
+  - direct_sink_reachability
+  - guard_presence_and_effect
+  - multi_sink_cases
+  - external_call_side_effects
+
+grading_bias_checks:
+  - punish_sink_hit_without_controlled_path
+  - punish_sink_hit_without_guard_analysis
+  - reward_verified_path_closure

@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TargetAuditResult",
+  "type": "object",
+  "required": [
+    "case_id",
+    "entry",
+    "verdict",
+    "evidence"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entry": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "transport": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "verdict": {
+      "type": "object",
+      "required": [
+        "has_vulnerability",
+        "status"
+      ],
+      "properties": {
+        "has_vulnerability": {
+          "type": "boolean"
+        },
+        "vulnerability_type": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "confirmed",
+            "rejected",
+            "unknown",
+            "insufficient-evidence"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "functions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reasoning_mode": {
+          "type": "string",
+          "enum": [
+            "code-grounded",
+            "mixed",
+            "report-derived"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "entry_pack": {
+          "type": "object"
+        },
+        "path_pack": {
+          "type": "object"
+        },
+        "context_pack": {
+          "type": "object"
+        },
+        "guard_pack": {
+          "type": "object"
+        },
+        "evidence_pack": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "raw_output_ref": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,21 @@
+profile:
+  name: vuln-audit-agent-team
+  status: compatibility
+  recommended_profile: authz-and-identity
+  note: keep this file only for older references; new access-control runs should switch to authz-and-identity.
+
+inherits:
+  - authz-and-identity
+
+compatibility_scope:
+  target_forms:
+    - single-skill
+    - multi-skill
+    - single-agent
+    - multi-agent
+    - agent-team
+
+frozen_invariants:
+  - do_not_optimize_by_pattern_library
+  - do_not_use_keyword_hits_as_final_evidence
+  - keep_requires_code_evidence

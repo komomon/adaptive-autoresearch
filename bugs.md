@@ -1,0 +1,34 @@
+# Known Pitfalls
+
+## Runtime
+
+- This machine still resolves plain `python` to `3.9.x`. Use `py -3.14` for this project.
+- `claude-agent-sdk-python` is the only supported agent-session path now.
+- `openai-compatible-chat` is a plain model call backend. It is not a persistent agent session.
+- In the unified `harness/main.py smoke` path, Claude SDK startup may fail with `WinError 5` on this machine and then fall back to `openai-compatible-chat`. If smoke still succeeds with `backend_used=openai-compatible-chat`, treat it as an environment/runtime issue, not a grading or target-project logic issue.
+
+## Endpoint Compatibility
+
+- DashScope OpenAI-compatible chat works with:
+  - `base_url=https://dashscope.aliyuncs.com/compatible-mode/v1`
+  - model `qwen3.6-plus`
+- DashScope Anthropic-compatible access should be used through `claude-agent-sdk-python` in this project:
+  - `base_url=https://dashscope.aliyuncs.com/apps/anthropic`
+  - model `qwen3.6-plus`
+
+## Evaluation
+
+- Missing target results must count as failed cases. `grade_run.py` already treats missing results as failures.
+- Canonicalizer output is not always pure JSON. `canonicalize_target_output.py` extracts JSON from fenced blocks or the first valid JSON region before failing.
+- For long runs, keep `resume_completed_cases: true` together with per-case `timeout_seconds`, `max_attempts`, and `retry_backoff_seconds`.
+- Target results, canonicalized outputs, and status files must stay isolated per candidate. Reusing one shared results directory across candidates will contaminate later scoring.
+
+## Fallback
+
+- If the Claude SDK path is temporarily unstable, use `openai-compatible-chat + preload_files` as the fallback invocation.
+- The stable pattern is now: `claude-agent-sdk-python` primary, `openai-compatible-chat` fallback.
+
+## Candidate Workspaces
+
+- Automatic optimization must edit a prepared candidate workspace, not the original target project directory.
+- When the source candidate is `baseline` and no workspace exists yet, packet proposal falls back to the original target project directory for editable-file discovery.

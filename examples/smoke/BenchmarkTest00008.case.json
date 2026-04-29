@@ -1,0 +1,20 @@
+{
+  "case_id": "benchmarkjava-00008-sqli",
+  "repo": {
+    "url": "D:/ccode/aicode/aicode002-claudecode/BenchmarkJava-master",
+    "branch": "local"
+  },
+  "entry": {
+    "name": "/sqli-00/BenchmarkTest00008",
+    "transport": "http",
+    "language": "java"
+  },
+  "expected": {
+    "has_vulnerability": true,
+    "vulnerability_type": [
+      "sql-injection"
+    ],
+    "vuln_function_or_line": "src/main/java/org/owasp/benchmark/testcode/BenchmarkTest00008.java:47"
+  },
+  "notes": "Smoke-only sample from OWASP Benchmark. Useful for invocation/canonicalization checks, not for judging authscan-2 quality on authorization findings."
+}

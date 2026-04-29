@@ -1,0 +1,48 @@
+profile:
+  name: business-logic-and-funds
+  objective: improve business and monetary logic analysis around invariants, actor separation, and state transitions
+  recommended_for:
+    - red-packet
+    - balance
+    - order
+    - payment
+    - refund
+    - coupon
+    - points
+    - settlement
+    - qualification
+    - quota
+    - concurrency
+
+inherits:
+  - generic-vuln-audit
+
+focus_primitives:
+  - Actor
+  - SensitiveAction
+  - Guard
+  - StateTransition
+  - Evidence
+  - Verdict
+  - BusinessInvariant
+  - MonetaryConstraint
+  - QuotaConstraint
+  - ActorSeparation
+
+domain_roles:
+  - state-machine-agent
+  - invariant-agent
+  - funds-risk-agent
+
+must_cover:
+  - actor_separation
+  - repeated_claim_or_repeat_execution
+  - amount_or_quota_validation
+  - state_transition_validity
+  - approval_or_qualification_checks
+  - concurrent_or_race_sensitive_behavior
+
+grading_bias_checks:
+  - punish_sink_only_reasoning_for_logic_cases
+  - punish_missing_business_invariant_explanation
+  - reward_explicit_invariant_violation_evidence

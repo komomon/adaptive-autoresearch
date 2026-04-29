@@ -1,0 +1,55 @@
+profile:
+  name: authz-and-identity
+  objective: improve authorization and identity analysis without shrinking into framework-specific rules
+  recommended_for:
+    - broken-access-control
+    - idor
+    - bola
+    - bfla
+    - unauthorized
+    - identity-impersonation
+    - cross-tenant
+
+inherits:
+  - generic-vuln-audit
+
+focus_primitives:
+  - Actor
+  - TrustAnchor
+  - Selector
+  - Guard
+  - Evidence
+  - Verdict
+
+domain_extensions:
+  - identity_binding
+  - resource_binding
+  - output_authorization
+  - delayed_authorization
+  - stored_identity_revalidation
+  - approval_flow_authorization
+  - parameter_override
+  - parent_method_and_interceptor_analysis
+
+domain_roles:
+  - auth-context-agent
+  - input-auth-relation-agent
+  - output-auth-relation-agent
+
+must_cover:
+  - post_check_authorization
+  - interceptor_authorization
+  - parent_class_authorization
+  - rpc_authorization
+  - file_download_authorization
+  - ssrf_like_resource_authorization
+
+negative_examples_that_must_not_trigger_findings:
+  - redundant_defense_where_primary_binding_is_already_sufficient
+  - query_then_post_filter_authorization
+  - approval_flow_as_legitimate_guard
+
+grading_bias_checks:
+  - punish_high_confidence_without_anchor
+  - punish_keyword_only_reasoning
+  - reward_closed_identity_or_resource_binding_chain

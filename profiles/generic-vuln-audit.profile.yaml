@@ -1,0 +1,106 @@
+profile:
+  name: generic-vuln-audit
+  objective: optimize multi-vulnerability audit methodology without collapsing into a rule library
+  recommended_for:
+    - baseline
+    - mixed repos
+    - first-pass benchmarking
+
+target_forms:
+  - single-skill
+  - multi-skill
+  - single-agent
+  - multi-agent
+  - agent-team
+
+supported_vulnerability_families:
+  - traditional
+  - authorization
+  - identity
+  - logic
+  - business-funds
+  - composite
+
+unified_primitives:
+  - EntryPoint
+  - Actor
+  - TrustAnchor
+  - Selector
+  - SensitiveAction
+  - Guard
+  - StateTransition
+  - Evidence
+  - Verdict
+
+topology_tiers:
+  S0:
+    description: single agent for short paths and small cases
+  S1:
+    description: compact team for sink-driven short chains
+    roles:
+      - scope
+      - path
+      - judge
+  S2:
+    description: full audit team for medium and hard cases
+    roles:
+      - planner
+      - entrypoint-scout
+      - context-mapper
+      - call-chain-explorer
+      - forward-analyzer
+      - backward-analyzer
+      - guard-analyzer
+      - evidence-agent
+      - judge-agent
+      - reporter-agent
+  S3:
+    description: domain-augmented team with domain lanes and dual verification
+
+topology_switch_signals:
+  - call_chain_length
+  - branch_count
+  - transport_type
+  - cross_service_or_cross_repo
+  - state_machine_or_monetary_behavior
+  - context_budget
+  - historical_failure_mode
+
+required_artifacts:
+  - entry_pack
+  - path_pack
+  - context_pack
+  - guard_pack
+  - evidence_pack
+  - verdict
+  - grading
+
+evaluation:
+  primary_metric: verdict_match
+  secondary_metrics:
+    - evidence_adequacy
+    - chain_completeness
+    - confidence_calibration
+    - false_positive_control
+    - false_negative_control
+  keep_gate:
+    require_dev_improvement: true
+    require_holdout_non_regression: true
+    require_cross_repo_non_regression: true
+    require_evidence_non_regression: true
+    require_high_confidence_fp_non_regression: true
+
+anti_overfit:
+  frozen_invariants:
+    - do_not_optimize_by_keyword_or_name_patterns
+    - do_not_change_labels_or_holdout_membership
+    - do_not_weaken_evidence_requirements
+    - do_not_replace_code_evidence_with_common-pattern_reasoning
+  can_learn:
+    - search_order
+    - topology_activation
+    - checkpoint_shape
+    - packet_selection_policy
+    - verifier_intensity
+    - context_packing
+    - lesson_merge_policy

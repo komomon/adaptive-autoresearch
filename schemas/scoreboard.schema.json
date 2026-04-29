@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scoreboard",
+  "type": "object",
+  "required": [
+    "baseline",
+    "best",
+    "current"
+  ],
+  "properties": {
+    "baseline": {
+      "$ref": "#/$defs/candidateScore"
+    },
+    "best": {
+      "$ref": "#/$defs/candidateScore"
+    },
+    "current": {
+      "$ref": "#/$defs/candidateScore"
+    }
+  },
+  "$defs": {
+    "candidateScore": {
+      "type": "object",
+      "required": [
+        "candidate_id",
+        "splits"
+      ],
+      "properties": {
+        "candidate_id": {
+          "type": "string"
+        },
+        "splits": {
+          "type": "object",
+          "properties": {
+            "dev": {
+              "$ref": "#/$defs/splitScore"
+            },
+            "holdout": {
+              "$ref": "#/$defs/splitScore"
+            },
+            "cross_repo": {
+              "$ref": "#/$defs/splitScore"
+            },
+            "canary": {
+              "$ref": "#/$defs/splitScore"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "splitScore": {
+      "type": "object",
+      "properties": {
+        "accuracy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "precision": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "recall": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "f1": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "evidence_adequacy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "chain_completeness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "high_confidence_false_positive_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "case_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

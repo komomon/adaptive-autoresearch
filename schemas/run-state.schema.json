@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunState",
+  "type": "object",
+  "required": [
+    "run_id",
+    "baseline",
+    "best",
+    "current",
+    "counters",
+    "lessons_pointer",
+    "active_profile",
+    "active_topology"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string"
+    },
+    "baseline": {
+      "type": "object"
+    },
+    "best": {
+      "type": "object"
+    },
+    "current": {
+      "type": "object"
+    },
+    "counters": {
+      "type": "object",
+      "required": [
+        "keeps",
+        "discards",
+        "crashes"
+      ],
+      "properties": {
+        "keeps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "discards": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "crashes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "lessons_pointer": {
+      "type": "string"
+    },
+    "active_profile": {
+      "type": "string"
+    },
+    "active_topology": {
+      "type": "string",
+      "enum": [
+        "S0",
+        "S1",
+        "S2",
+        "S3"
+      ]
+    },
+    "version_backend": {
+      "type": "string",
+      "enum": [
+        "git",
+        "local-dir"
+      ]
+    },
+    "scoreboard_pointer": {
+      "type": "string"
+    },
+    "supervisor": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

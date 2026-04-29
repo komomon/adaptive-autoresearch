@@ -1,0 +1,21 @@
+profile:
+  name: generic-agent-system
+  status: compatibility
+  recommended_profile: generic-vuln-audit
+  note: keep this file only for older references; new runs should switch to generic-vuln-audit.
+
+inherits:
+  - generic-vuln-audit
+
+compatibility_scope:
+  target_forms:
+    - single-skill
+    - multi-skill
+    - single-agent
+    - multi-agent
+    - agent-team
+
+frozen_invariants:
+  - do_not_turn_lessons_into_rule_library
+  - do_not_modify_ground_truth
+  - keep_requires_holdout_non_regression

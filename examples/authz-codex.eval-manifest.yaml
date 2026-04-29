@@ -1,0 +1,190 @@
+experiment:
+  name: authz-autoresearch-codex
+  profile: authz-and-identity
+  adapter: codex
+  versioning:
+    backend: git
+    git:
+      use_worktree: true
+      branch_prefix: autoresearch/authz/
+    local_dir:
+      snapshots_root: ./autoresearch-results/authz-codex/snapshots
+  target_project:
+    kind: agent-team
+    repo_path: ../your-authz-audit-project
+    invocation:
+      mode: claude-agent-sdk-python
+      cwd: ../your-authz-audit-project
+      model: qwen3.6-plus
+      api_key_env: DASHSCOPE_API_KEY
+      base_url: https://dashscope.aliyuncs.com/apps/anthropic
+      prompt_template: |
+        Use the target project's authorization audit workflow to analyze one case.
+        Focus on identity binding, resource binding, output authorization, delayed authorization,
+        parent-method/interceptor handling, and redundant-defense awareness.
+        Do not use evaluation labels as answers.
+
+        Case:
+        {case_json}
+      system_prompt: |
+        You are running inside the target authorization audit project.
+        Analyze only one case and produce the target project's raw output.
+      allowed_tools:
+        - Read
+        - Glob
+        - Grep
+        - Bash
+      permission_mode: acceptEdits
+      output:
+        mode: text-stdout
+      canonicalization:
+        enabled: true
+        runner: script
+        script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
+        mode: openai-compatible-chat
+        model: qwen3.6-plus
+        api_key_env: DASHSCOPE_API_KEY
+        base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        cwd: ../your-authz-audit-project
+    result_contract: target-audit-result
+    optimization_policy:
+      methodology_first: true
+      minimum_necessary_change: true
+      allowed_axes:
+        - role_split
+        - dispatch_strategy
+        - checkpoint_policy
+        - evidence_schema
+        - verifier_strength
+        - context_packing
+        - output_normalization
+      forbidden_axes:
+        - vulnerability_keyword_rules
+        - field_name_shortcuts
+        - framework_specific_special_cases
+        - evaluation_set_memorization
+    # If you trust autoresearch to modify the full target project,
+    # set editable_scope to:
+    #   - ./
+    editable_scope:
+      - prompts/
+      - skills/
+      - configs/
+      - orchestrator/
+      - agents/
+    read_only_scope:
+      - benchmarks/
+      - holdout/
+      - graders/
+      - datasets/
+
+dataset:
+  source:
+    kind: xlsx
+    path: ./datasets/authz_cases.xlsx
+    sheet: cases
+  normalize_to: ./datasets/authz_cases.jsonl
+  normalization:
+    mode: llm-assisted-when-sparse
+    allow_sparse_rows: true
+    auto_generate_case_id: true
+    default_transport: http
+    default_language: unknown
+    mark_missing_fields_for_review: true
+  column_mapping:
+    case_id: case_id
+    repo.url: repo_url
+    repo.branch: repo_branch
+    entry.name: entry_name
+    entry.transport: transport
+    entry.language: language
+    expected.has_vulnerability: has_vulnerability
+    expected.vulnerability_type: vulnerability_type
+    expected.vuln_function_or_line: vuln_function_or_line
+    expected.severity: severity
+    expected.key_anchor: key_anchor
+    expected.key_sink: key_sink
+    expected.actor_model: actor_model
+    notes: notes
+  split:
+    dev: 0.50
+    holdout: 0.25
+    cross_repo: 0.15
+    canary: 0.10
+
+execution:
+  modes:
+    - foreground
+    - background
+    - resume
+  candidate_evaluation:
+    strategy: staged
+  packet:
+    max_primary_change_count: 1
+    max_dev_cases_per_round: 12
+    require_checkpoint_after_each_chain_extension: true
+  topology:
+    default: S2
+    escalation_order:
+      - S1
+      - S2
+      - S3
+
+grading:
+  primary_metric: verdict_match
+  result_contract: target-audit-result
+  match_rules:
+    require_verdict_match: true
+    require_type_match_when_available: true
+    require_evidence_for_high_confidence: true
+  aggregate_metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1
+  secondary_metrics:
+    - evidence_adequacy
+    - chain_completeness
+    - confidence_calibration
+    - false_positive_control
+    - false_negative_control
+  keep_gate:
+    require_dev_improvement: true
+    require_holdout_non_regression: true
+    require_cross_repo_non_regression: true
+    require_evidence_non_regression: true
+    require_high_confidence_fp_non_regression: true
+
+meta_optimization:
+  enabled: true
+  optimize_axes:
+    - role_split
+    - topology_activation
+    - search_order
+    - packet_selection_policy
+    - verifier_intensity
+    - context_packing
+    - failure_taxonomy
+    - lesson_merge_policy
+  never_optimize:
+    - expected_labels
+    - holdout_membership
+    - grading_rubric_meaning
+    - vulnerability_taxonomy_semantics
+    - hard_invariants
+
+outputs:
+  run_root: ./autoresearch-results/authz-codex
+  ledgers:
+    - run-state.json
+    - scoreboard.json
+    - candidate-ledger.jsonl
+    - lesson-ledger.md
+  case_artifacts:
+    - entry_pack.json
+    - path_pack.json
+    - context_pack.json
+    - guard_pack.json
+    - evidence_pack.json
+    - verdict.json
+    - grading.json

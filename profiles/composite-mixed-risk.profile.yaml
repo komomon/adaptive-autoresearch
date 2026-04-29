@@ -1,0 +1,29 @@
+profile:
+  name: composite-mixed-risk
+  objective: evaluate multi-stage and cross-domain exploitability without overfitting the training path
+  recommended_for:
+    - holdout
+    - canary
+    - cross-repo
+    - composite-attack-path
+
+inherits:
+  - generic-vuln-audit
+
+domain_mix_examples:
+  - identity-impersonation-plus-funds-action
+  - unauthorized-read-plus-business-arbitrage
+  - ssrf-plus-internal-privileged-api
+
+topology_requirement:
+  minimum: S2
+  prefer: S3
+
+must_cover:
+  - cross_domain_evidence_linking
+  - staged_guard_analysis
+  - partial_chain_disclosure_when_not_fully_closed
+
+grading_bias_checks:
+  - punish_single-domain-shortcuts
+  - reward_multi-stage-evidence-coherence
