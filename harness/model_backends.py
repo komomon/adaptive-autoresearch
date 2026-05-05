@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List
@@ -91,6 +92,12 @@ def _claude_env_overrides(config: Dict[str, Any]) -> Dict[str, str | None]:
 def claude_agent_sdk_query(prompt: str, cwd: Path, config: Dict[str, Any]) -> str:
     try:
         from claude_agent_sdk import query, ClaudeAgentOptions  # type: ignore
+        from claude_agent_sdk.types import (
+            AssistantMessage,
+            ResultMessage,
+            TextBlock,
+            ToolUseBlock,
+        )  # type: ignore
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("claude-agent-sdk is not installed.") from exc
 
@@ -106,8 +113,9 @@ def claude_agent_sdk_query(prompt: str, cwd: Path, config: Dict[str, Any]) -> st
         if config.get("timeout_seconds") is not None
         else None
     )
+    quiet = bool(config.get("quiet", False))
 
-    async def _run_query() -> str:
+    async def _stream_query() -> str:
         previous_cwd = Path.cwd()
         os.chdir(cwd)
         try:
@@ -127,10 +135,37 @@ def claude_agent_sdk_query(prompt: str, cwd: Path, config: Dict[str, Any]) -> st
             if permission_mode_tool_name is not None:
                 options_kwargs["permission_mode_tool_name"] = permission_mode_tool_name
             options = ClaudeAgentOptions(**options_kwargs)
+
+            if not quiet:
+                sys.stderr.write(f"[SDK] query start, cwd={cwd}\n")
+                sys.stderr.flush()
+
             result_text = ""
+            turn = 0
             async for message in query(prompt=prompt, options=options):
-                if hasattr(message, "result"):
+                if isinstance(message, AssistantMessage):
+                    turn += 1
+                    for block in message.content:
+                        if isinstance(block, TextBlock) and block.text and not quiet:
+                            sys.stderr.write(f"[SDK turn {turn}] {block.text}\n")
+                            sys.stderr.flush()
+                        elif isinstance(block, ToolUseBlock) and not quiet:
+                            _input = {k: v for k, v in block.input.items() if k != "command"} if isinstance(block.input, dict) else {}
+                            _cmd = block.input.get("command", "") if isinstance(block.input, dict) else ""
+                            _desc = _cmd[:120] if _cmd else str(_input)[:120]
+                            sys.stderr.write(f"[SDK turn {turn}] tool: {block.name}({_desc})\n")
+                            sys.stderr.flush()
+                elif isinstance(message, ResultMessage):
+                    result_text = message.result if message.result else ""
+                    if not quiet:
+                        sys.stderr.write(f"[SDK] done, result length={len(result_text)}\n")
+                        sys.stderr.flush()
+                elif hasattr(message, "result") and message.result is not None:
                     result_text = message.result
+                    if not quiet:
+                        sys.stderr.write(f"[SDK] done (fallback), result length={len(str(result_text))}\n")
+                        sys.stderr.flush()
+
             return result_text
         finally:
             os.chdir(previous_cwd)
@@ -138,8 +173,8 @@ def claude_agent_sdk_query(prompt: str, cwd: Path, config: Dict[str, Any]) -> st
     with temporary_environment(_claude_env_overrides(config)):
         async def _run_with_timeout() -> str:
             if timeout_seconds is None:
-                return await _run_query()
-            return await asyncio.wait_for(_run_query(), timeout=timeout_seconds)
+                return await _stream_query()
+            return await asyncio.wait_for(_stream_query(), timeout=timeout_seconds)
 
         try:
             return asyncio.run(_run_with_timeout())
