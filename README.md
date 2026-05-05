@@ -16,19 +16,34 @@
 
 - [QUICKSTART.md](D:/ccode/aicode/aicode002-claudecode/autoresearch/adaptive-autoresearch/QUICKSTART.md)
 
+## 前置条件
+
+- Python 3.14+
+- 已安装依赖：`claude-agent-sdk`、`openai`、`PyYAML`
+- 设置环境变量 `ANTHROPIC_AUTH_TOKEN`（你的 API key）
+- **Windows 额外要求**（macOS/Linux 不需要）：需安装 [Git for Windows](https://git-scm.com/downloads/win)，并设置 `CLAUDE_CODE_GIT_BASH_PATH` 指向 `bash.exe`，例如：
+  ```powershell
+  $env:CLAUDE_CODE_GIT_BASH_PATH="D:\base_env\Git\usr\bin\bash.exe"
+  ```
+
 ## 当前推荐入口
 
 统一入口：
 
 - [harness/main.py](D:/ccode/aicode/aicode002-claudecode/autoresearch/adaptive-autoresearch/harness/main.py)
 
-推荐命令：
+推荐命令（deepseek 端点示例）：
 
 ```powershell
+$env:ANTHROPIC_AUTH_TOKEN="你的key"
+$env:CLAUDE_CODE_GIT_BASH_PATH="D:\base_env\Git\usr\bin\bash.exe"
+
 py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py auto `
-  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\authscan-benchmarkjava-sdk-smoke.eval-manifest.yaml `
+  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml `
   --rounds 1
 ```
+
+如果你使用 dashscope 端点，参考 [authscan-benchmarkjava-sdk-smoke.eval-manifest.yaml](D:/ccode/aicode/aicode002-claudecode/autoresearch/adaptive-autoresearch/examples/authscan-benchmarkjava-sdk-smoke.eval-manifest.yaml)。
 
 ## 这套项目解决什么问题
 
@@ -90,7 +105,7 @@ adaptive-autoresearch/
 
 已经稳定可用：
 
-- 调目标项目
+- 调目标项目（仅保留 `claude-agent-sdk-python` 主路径）
 - rich output canonicalization
 - grading
 - baseline / candidate keep-discard

@@ -27,27 +27,40 @@ py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch
 
 - 使用 `py -3.14`
 - 已安装：
-  - `claude-agent-sdk-python`
+  - `claude-agent-sdk`
   - `openai`
   - `PyYAML`
-- 已设置环境变量 `DASHSCOPE_API_KEY`
+- 已设置环境变量 `ANTHROPIC_AUTH_TOKEN`
+- **Windows 用户额外要求**（macOS/Linux 不需要）：安装 [Git for Windows](https://git-scm.com/downloads/win)，并设置：
+  ```powershell
+  $env:CLAUDE_CODE_GIT_BASH_PATH="你的bash.exe路径"
+  ```
+  （默认路径通常为 `C:\Program Files\Git\bin\bash.exe` 或通过 `where bash` 查找）
 
 推荐先确认：
 
 ```powershell
-$env:DASHSCOPE_API_KEY="你的 key"
+$env:ANTHROPIC_AUTH_TOKEN="你的 key"
+# Windows 额外：
+$env:CLAUDE_CODE_GIT_BASH_PATH="D:\base_env\Git\usr\bin\bash.exe"
+
 py -3.14 -V
 ```
 
 ## 2. 最短可运行命令
 
-直接跑当前自带 smoke 示例：
+直接跑当前自带 smoke 示例（deepseek 端点）：
 
 ```powershell
+$env:ANTHROPIC_AUTH_TOKEN="你的 key"
+$env:CLAUDE_CODE_GIT_BASH_PATH="你的 bash.exe 路径"
+
 py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py auto `
-  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\authscan-benchmarkjava-sdk-smoke.eval-manifest.yaml `
+  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml `
   --rounds 1
 ```
+
+如果使用 dashscope 端点，把 manifest 换成 `authscan-benchmarkjava-sdk-smoke.eval-manifest.yaml`，并按该 manifest 中的 `api_key_env` 设置对应的环境变量。
 
 这条命令会自动完成：
 
@@ -65,7 +78,7 @@ py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch
 
 ```powershell
 py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py smoke `
-  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\authscan-benchmarkjava-sdk-smoke.eval-manifest.yaml `
+  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml `
   --case-file D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\smoke\BenchmarkTest00008.case.json `
   --output-dir D:\ccode\aicode\aicode002-claudecode\autoresearch\autoresearch-results\smoke\manual-smoke
 ```
@@ -82,14 +95,14 @@ py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch
 
 ```powershell
 py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py init `
-  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\authscan-benchmarkjava-sdk-smoke.eval-manifest.yaml
+  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml
 ```
 
 再评测：
 
 ```powershell
 py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py eval `
-  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\authscan-benchmarkjava-sdk-smoke.eval-manifest.yaml `
+  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml `
   --run-dir D:\ccode\aicode\aicode002-claudecode\autoresearch\autoresearch-results\runs\<run_id> `
   --candidate-id baseline
 ```
@@ -98,7 +111,7 @@ py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch
 
 ```powershell
 py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py advance `
-  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\authscan-benchmarkjava-sdk-smoke.eval-manifest.yaml `
+  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml `
   --run-dir D:\ccode\aicode\aicode002-claudecode\autoresearch\autoresearch-results\runs\<run_id>
 ```
 
@@ -106,7 +119,7 @@ py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch
 
 ```powershell
 py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py auto `
-  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\authscan-benchmarkjava-sdk-smoke.eval-manifest.yaml `
+  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml `
   --rounds 3
 ```
 
@@ -117,6 +130,10 @@ py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch
 模板文件：
 
 - [eval-manifest.template.yaml](D:/ccode/aicode/aicode002-claudecode/autoresearch/adaptive-autoresearch/templates/eval-manifest.template.yaml)
+
+可直接用的示例：
+
+- [deepseek-smoke.eval-manifest.yaml](D:/ccode/aicode/aicode002-claudecode/autoresearch/adaptive-autoresearch/examples/deepseek-smoke.eval-manifest.yaml) — deepseek 端点，claude-agent-sdk 纯路径
 
 ### 4.1 必改项
 
@@ -130,18 +147,13 @@ experiment:
 
 #### 目标项目调用方式
 
-推荐默认值：
+当前只保留 `claude-agent-sdk-python` 主路径，不再使用 openai-compatible-chat fallback：
 
 ```yaml
 invocation:
   mode: claude-agent-sdk-python
-```
-
-如果 SDK 临时不稳定，保留 fallback：
-
-```yaml
-fallback_invocation:
-  mode: openai-compatible-chat
+  api_key_env: ANTHROPIC_AUTH_TOKEN
+  base_url: https://api.deepseek.com/anthropic
 ```
 
 #### 数据集路径
@@ -294,7 +306,7 @@ autoresearch-results/runs/<run_id>/
 
 现在已经稳定可用的是：
 
-- 调目标项目
+- 调目标项目（仅 `claude-agent-sdk-python` 路径）
 - canonicalize rich output
 - grading
 - baseline / candidate keep-discard
@@ -308,3 +320,10 @@ autoresearch-results/runs/<run_id>/
 - 自带高质量真实 benchmark
 - 已经保证 packet 提案一定最优
 - 可以完全替代人工复审
+
+## 9. Windows 注意事项（仅 Windows）
+
+- claude-agent-sdk 在 Windows 上需要 git-bash，必须设置 `CLAUDE_CODE_GIT_BASH_PATH`
+- 查找 git-bash 路径：`where bash`
+- 如未安装 Git for Windows：https://git-scm.com/downloads/win
+- macOS / Linux 自带 bash，无需此配置

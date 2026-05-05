@@ -117,15 +117,18 @@ def default_proposal_config(manifest: Dict[str, Any]) -> Dict[str, Any]:
     explicit = manifest.get("optimization", {}).get("proposal")
     if isinstance(explicit, dict):
         return explicit
-    canonical = manifest.get("experiment", {}).get("target_project", {}).get("invocation", {}).get("canonicalization", {})
-    if isinstance(canonical, dict) and canonical.get("mode") == "openai-compatible-chat":
-        return canonical
+    invocation = manifest.get("experiment", {}).get("target_project", {}).get("invocation", {})
+    if isinstance(invocation, dict) and invocation.get("mode") == "claude-agent-sdk-python":
+        cfg = dict(invocation)
+        cfg.setdefault("permission_mode", "default")
+        cfg.setdefault("max_turns", 8)
+        cfg.setdefault("timeout_seconds", 120)
+        return cfg
     return {
-        "mode": "openai-compatible-chat",
-        "api_key_env": "OPENAI_API_KEY",
-        "base_url_env": "OPENAI_BASE_URL",
-        "model_env": "OPENAI_MODEL",
-        "temperature": 0.0,
+        "mode": "claude-agent-sdk-python",
+        "permission_mode": "default",
+        "max_turns": 8,
+        "timeout_seconds": 120,
     }
 
 
