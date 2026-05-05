@@ -185,9 +185,10 @@ def main() -> int:
     execution = manifest.get("execution", {})
     outputs = manifest.get("outputs", {})
 
-    normalized_path = Path(
-        args.normalized_cases or dataset.get("normalize_to", "")
-    ).resolve()
+    normalized_raw = args.normalized_cases or dataset.get("normalize_to", "")
+    if not normalized_raw:
+        raise SystemExit("Missing normalized cases: set dataset.normalize_to in manifest or pass --normalized-cases.")
+    normalized_path = Path(normalized_raw).resolve()
     if not normalized_path.exists():
         raise SystemExit(f"Normalized cases file not found: {normalized_path}")
 

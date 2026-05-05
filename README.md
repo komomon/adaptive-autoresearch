@@ -19,7 +19,7 @@
 ## 前置条件
 
 - Python 3.14+
-- 已安装依赖：`claude-agent-sdk`、`openai`、`PyYAML`
+- 已安装依赖：`claude-agent-sdk`、`PyYAML`
 - 设置环境变量 `ANTHROPIC_AUTH_TOKEN`（你的 API key）
 - **Windows 额外要求**（macOS/Linux 不需要）：需安装 [Git for Windows](https://git-scm.com/downloads/win)，并设置 `CLAUDE_CODE_GIT_BASH_PATH` 指向 `bash.exe`，例如：
   ```powershell

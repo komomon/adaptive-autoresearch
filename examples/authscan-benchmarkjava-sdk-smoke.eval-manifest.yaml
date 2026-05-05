@@ -39,72 +39,12 @@ experiment:
       canonicalization:
         enabled: true
         runner: script
-        script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
+        
         mode: claude-agent-sdk-python
         model: deepseek-v4-pro
         api_key_env: ANTHROPIC_AUTH_TOKEN
         base_url: https://api.deepseek.com/anthropic
-        timeout_seconds: 120
-      fallback_invocation:
-        mode: claude-agent-sdk-python
-        cwd: D:/ccode/aicode/gitcode/back/authscan-2
-        model: deepseek-v4-pro
-        api_key_env: ANTHROPIC_AUTH_TOKEN
-        base_url: https://api.deepseek.com/anthropic
-        timeout_seconds: 180
-        preload_files:
-          - SKILL.md
-          - reference/recon.md
-          - reference/endpoint-analysis.md
-          - reference/output-analysis.md
-          - reference/trust-propagation-rules.md
-          - reference/datasink-patterns.md
-        prompt_template: |
-          You are inside the authscan target project.
-          Follow the preloaded skill and methodology files below.
-          Analyze exactly one case against the repository indicated below.
-          This fallback path exists only to keep the target-project call chain stable when the SDK path is unavailable.
-          Do not read evaluation labels as answers.
-
-          {preloaded_files}
-
-          Case:
-          {case_json}
-        system_prompt: |
-          Use the target project's own methodology.
-          Prefer code-grounded reasoning.
-          If the case does not fit authorization analysis, say so explicitly instead of inventing authorization findings.
-        canonicalization:
-          enabled: true
-          runner: script
-          script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
-          mode: claude-agent-sdk-python
-          model: deepseek-v4-pro
-          api_key_env: ANTHROPIC_AUTH_TOKEN
-          base_url: https://api.deepseek.com/anthropic
-          timeout_seconds: 120
-    result_contract: target-audit-result
-    optimization_policy:
-      methodology_first: true
-      minimum_necessary_change: true
-      allowed_axes:
-        - role_split
-        - dispatch_strategy
-        - checkpoint_policy
-        - evidence_schema
-        - verifier_strength
-        - context_packing
-        - output_normalization
-      forbidden_axes:
-        - vulnerability_keyword_rules
-        - field_name_shortcuts
-        - framework_specific_special_cases
-        - evaluation_set_memorization
-    editable_scope:
-      - ./
-    read_only_scope: []
-
-dataset:
+        timeout_seconds: 120dataset:
   source:
     kind: jsonl
     path: ./adaptive-autoresearch/examples/smoke/benchmarkjava-two-cases.jsonl

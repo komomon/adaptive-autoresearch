@@ -13,13 +13,6 @@ experiment:
       model: deepseek-v4-pro
       api_key_env: ANTHROPIC_AUTH_TOKEN
       base_url: https://api.deepseek.com/anthropic
-      preload_files:
-        - SKILL.md
-        - reference/recon.md
-        - reference/endpoint-analysis.md
-        - reference/output-analysis.md
-        - reference/trust-propagation-rules.md
-        - reference/datasink-patterns.md
       prompt_template: |
         You are inside the authscan target project.
         Follow the preloaded skill and methodology files below.

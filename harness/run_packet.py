@@ -165,19 +165,6 @@ def format_context(case: Dict[str, Any], manifest: Dict[str, Any], run_id: str) 
     }
 
 
-def load_preloaded_files(cwd: Path, file_list: List[str]) -> str:
-    sections: List[str] = []
-    for item in file_list:
-        path = (cwd / item).resolve() if not Path(item).is_absolute() else Path(item).resolve()
-        if not path.exists() or not path.is_file():
-            continue
-        try:
-            content = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            content = path.read_text(encoding="utf-8", errors="replace")
-        sections.append(f"## FILE: {path}\n\n{content}")
-    return "\n\n".join(sections)
-
 
 def render_template(template: str, context: Dict[str, str]) -> str:
     class SafeDict(dict):
@@ -264,7 +251,7 @@ def default_grade_script() -> Path:
 
 
 def load_cached_result(run_dir: Path, candidate_id: str, case: Dict[str, Any]) -> Dict[str, Any] | None:
-    path = canonical_cache_path(run_dir, candidate_id, str(case["case_id"]))
+    path = canonical_cache_path(run_dir, candidate_id, str(case.get("case_id")))
     if not path.exists():
         return None
     try:

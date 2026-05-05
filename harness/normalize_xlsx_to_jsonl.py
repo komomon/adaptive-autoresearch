@@ -187,12 +187,6 @@ def validate_required_mappings(required_mappings: Dict[str, str]) -> None:
         joined = ", ".join(missing)
         raise SystemExit(f"Missing required mappings: {joined}")
 
-
-def build_header_index(row: Iterable[Any]) -> Dict[str, int]:
-    headers = [normalize_header(cell) for cell in row]
-    return {header: index for index, header in enumerate(headers) if header}
-
-
 def read_rows(
     input_path: Path,
     sheet_name: str,

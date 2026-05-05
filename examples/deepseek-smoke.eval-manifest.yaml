@@ -146,4 +146,4 @@ optimization:
     timeout_seconds: 300
 
 outputs:
-  run_root: D:/ccode/aicode/aicode002-claudecode/autoresearch/autoresearch-results
+  run_root: ./autoresearch-results

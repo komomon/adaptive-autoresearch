@@ -38,7 +38,12 @@ def run_subprocess(command: list[str], cwd: Path) -> dict:
         raise RuntimeError(
             f"Command failed:\ncommand={' '.join(command)}\nstdout={result.stdout}\nstderr={result.stderr}"
         )
-    return json.loads(result.stdout.strip().splitlines()[-1])
+    lines = result.stdout.strip().splitlines()
+    if not lines:
+        raise RuntimeError(f"Subprocess produced no output.
+command={' '.join(command)}
+stderr={result.stderr}")
+    return json.loads(lines[-1])
 
 
 def next_packet_id(run_dir: Path) -> str:

@@ -28,7 +28,6 @@ py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch
 - 使用 `py -3.14`
 - 已安装：
   - `claude-agent-sdk`
-  - `openai`
   - `PyYAML`
 - 已设置环境变量 `ANTHROPIC_AUTH_TOKEN`
 - **Windows 用户额外要求**（macOS/Linux 不需要）：安装 [Git for Windows](https://git-scm.com/downloads/win)，并设置：
@@ -222,7 +221,7 @@ editable_scope:
 - `execution.candidate_evaluation.strategy`
   - 默认：`staged`
 - `execution.case_retry.max_attempts`
-  - 默认：`2`
+  - 默认：`1`
 - `execution.case_retry.backoff_seconds`
   - 默认：`2`
 - `execution.packet.max_primary_change_count`
