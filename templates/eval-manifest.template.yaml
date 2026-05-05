@@ -18,12 +18,8 @@ experiment:
       model: qwen3.6-plus
       api_key_env: DASHSCOPE_API_KEY
       base_url: https://dashscope.aliyuncs.com/apps/anthropic
-      # If the target project is a local skill repo and you need an OpenAI-compatible
-      # fallback instead of Claude SDK, switch mode to openai-compatible-chat and
-      # preload the skill files you want the model to see:
-      # preload_files:
-      #   - SKILL.md
-      #   - reference/recon.md
+      # The target project is invoked via claude-agent-sdk-python.
+      # Use allowed_tools, max_turns, and timeout_seconds to control behavior.
       prompt_template: |
         Use the target project's security audit skill or agent-team workflow to analyze exactly one case.
         Follow the target project's own methodology.
@@ -52,17 +48,13 @@ experiment:
         enabled: true
         runner: script
         script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
-        mode: openai-compatible-chat
+        mode: claude-agent-sdk-python
         model: qwen3.6-plus
         api_key_env: DASHSCOPE_API_KEY
         base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
         cwd: ../your-target-project
         # timeout_seconds: 120
-      # Optional: if the SDK path is not stable yet, keep the evaluation loop alive by
-      # falling back to OpenAI-compatible chat with preloaded skill files.
-      # fallback_invocation:
-      #   mode: openai-compatible-chat
-      #   cwd: ../your-target-project
+      # timeout_seconds: 120
       #   model: qwen3.6-plus
       #   api_key_env: DASHSCOPE_API_KEY
       #   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -199,7 +191,7 @@ meta_optimization:
 
 optimization:
   proposal:
-    mode: openai-compatible-chat
+    mode: claude-agent-sdk-python
     model: qwen3.6-plus
     api_key_env: DASHSCOPE_API_KEY
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1

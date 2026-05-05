@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from model_backends import claude_agent_sdk_query, openai_chat_completion
+from model_backends import claude_agent_sdk_query
 from run_experiment import load_manifest
 from version_backend import candidate_workspace_dir, read_json, write_json
 
@@ -204,11 +204,7 @@ def main() -> int:
     prompt = render_prompt(args.packet_id, args.candidate_id, failures, editable_files, optimization_policy)
 
     proposal_cfg = default_proposal_config(manifest)
-    mode = proposal_cfg.get("mode", "openai-compatible-chat")
-    if mode == "claude-agent-sdk-python":
-        raw_text = claude_agent_sdk_query(prompt, workspace, proposal_cfg)
-    else:
-        raw_text = openai_chat_completion(prompt, proposal_cfg)
+    raw_text = claude_agent_sdk_query(prompt, workspace, proposal_cfg)
 
     payload = parse_json_object(raw_text)
     payload.setdefault("packet_id", args.packet_id)

@@ -18,27 +18,14 @@
 
 ## 1. 推荐调用方式
 
-当前项目只保留两类模型调用路径：
+当前项目只保留一条模型调用路径：
 
-1. `claude-agent-sdk-python`
-2. `openai-compatible-chat`
-
-其中推荐项是：
-
-- 主路径：`claude-agent-sdk-python`
-- fallback：`openai-compatible-chat`
+- `claude-agent-sdk-python`
 
 说明：
 
 - `claude-agent-sdk-python`
   是真正的 agent session 路径，适合直接运行本地 skill / agent-team 项目。
-- `openai-compatible-chat`
-  只是一次普通模型调用，不是持久 agent 会话。
-  它适合做：
-  - fallback
-  - canonicalization
-  - probe / smoke
-  - 预加载 `SKILL.md` 的兜底调用
 
 ## 2. 每个 case 的最小输入
 

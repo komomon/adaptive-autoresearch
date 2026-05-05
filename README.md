@@ -63,18 +63,9 @@ py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch
 
 ## 当前主路径
 
-模型调用路径现在只保留：
+模型调用路径：
 
-- `claude-agent-sdk-python`
-- `openai-compatible-chat`
-
-说明：
-
-- `claude-agent-sdk-python`
-  是主路径，适合直接运行本地 skill / agent-team 项目
-- `openai-compatible-chat`
-  只是普通模型调用，不是 agent session
-  主要用于 fallback、canonicalization 和 probe
+- `claude-agent-sdk-python` — 唯一路径，适合直接运行本地 skill / agent-team 项目
 
 ## 主要目录
 

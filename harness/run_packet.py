@@ -22,7 +22,6 @@ from typing import Any, Dict, Iterable, List
 
 from model_backends import (
     claude_agent_sdk_query,
-    openai_chat_completion,
     resolve_setting,
     run_subprocess,
 )
@@ -329,20 +328,12 @@ def run_external_canonicalizer(
     api_key = resolve_setting(canonical_cfg, "api_key")
     base_url = resolve_setting(canonical_cfg, "base_url")
     model = resolve_setting(canonical_cfg, "model")
-    if mode == "openai-compatible-chat":
-        if api_key:
-            env_overrides["OPENAI_API_KEY"] = api_key
-        if base_url:
-            env_overrides["OPENAI_BASE_URL"] = base_url
-        if model:
-            env_overrides["OPENAI_MODEL"] = model
-    else:
-        if api_key:
-            env_overrides["ANTHROPIC_API_KEY"] = api_key
-        if base_url:
-            env_overrides["ANTHROPIC_BASE_URL"] = base_url
-        if model:
-            env_overrides["ANTHROPIC_MODEL"] = model
+    if api_key:
+        env_overrides["ANTHROPIC_API_KEY"] = api_key
+    if base_url:
+        env_overrides["ANTHROPIC_BASE_URL"] = base_url
+    if model:
+        env_overrides["ANTHROPIC_MODEL"] = model
 
     result = run_subprocess(command, Path.cwd(), env_overrides=env_overrides or None)
     if result.returncode != 0:
@@ -552,59 +543,6 @@ def invoke_claude_agent_sdk_python(
     return ensure_target_result_shape(case, payload, str(raw_path))
 
 
-def invoke_openai_compatible_chat(
-    invocation: Dict[str, Any],
-    case: Dict[str, Any],
-    manifest: Dict[str, Any],
-    run_id: str,
-    run_dir: Path,
-    candidate_id: str,
-) -> Dict[str, Any]:
-    context = format_context(case, manifest, run_id)
-    target_repo_path = resolved_target_repo_path(manifest, run_dir)
-    cwd = Path(render_template(invocation.get("cwd", str(target_repo_path)), context)).resolve()
-    prompt_template = invocation.get(
-        "prompt_template",
-        "Analyze exactly one case.\n\nCase:\n{case_json}\n",
-    )
-    preload_files = invocation.get("preload_files", [])
-    if preload_files:
-        context["preloaded_files"] = load_preloaded_files(cwd, list(preload_files))
-    else:
-        context["preloaded_files"] = ""
-    prompt = render_template(prompt_template, context)
-    effective_invocation = dict(invocation)
-    system_prompt = invocation.get("system_prompt")
-    if system_prompt:
-        effective_invocation["system_prompt"] = render_template(str(system_prompt), context)
-    result_text = openai_chat_completion(prompt, effective_invocation)
-
-    raw_dir = candidate_target_results_dir(run_dir, candidate_id) / "raw"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = raw_dir / f"{case['case_id']}.openai.txt"
-    raw_path.write_text(result_text, encoding="utf-8")
-
-    canonical_cfg = invocation.get("canonicalization", {})
-    if canonical_cfg.get("enabled"):
-        raw_payload_path = raw_dir / f"{case['case_id']}.raw.txt"
-        raw_payload_path.write_text(result_text, encoding="utf-8")
-        return run_external_canonicalizer(canonical_cfg, case, raw_payload_path, run_dir, candidate_id)
-
-    payload = json.loads(result_text)
-    return ensure_target_result_shape(case, payload, str(raw_path))
-
-
-def normalized_fallback_invocations(invocation: Dict[str, Any]) -> List[Dict[str, Any]]:
-    fallbacks: List[Dict[str, Any]] = []
-    singular = invocation.get("fallback_invocation")
-    plural = invocation.get("fallback_invocations", [])
-    if isinstance(singular, dict):
-        fallbacks.append(singular)
-    if isinstance(plural, list):
-        fallbacks.extend(item for item in plural if isinstance(item, dict))
-    return fallbacks
-
-
 def invoke_target_project(
     invocation: Dict[str, Any],
     case: Dict[str, Any],
@@ -613,31 +551,18 @@ def invoke_target_project(
     run_dir: Path,
     candidate_id: str,
 ) -> tuple[Dict[str, Any], str]:
-    errors: List[str] = []
-    invocation_chain = [dict(invocation), *normalized_fallback_invocations(invocation)]
-    for index, candidate_invocation in enumerate(invocation_chain):
-        mode = candidate_invocation.get("mode", "cli-json")
-        try:
-            if mode == "claude-agent-sdk-python":
-                return (
-                    invoke_claude_agent_sdk_python(candidate_invocation, case, manifest, run_id, run_dir, candidate_id),
-                    mode,
-                )
-            if mode == "openai-compatible-chat":
-                return (
-                    invoke_openai_compatible_chat(candidate_invocation, case, manifest, run_id, run_dir, candidate_id),
-                    mode,
-                )
-            if mode == "cli-json":
-                return (
-                    invoke_cli_json(candidate_invocation, case, manifest, run_id, run_dir, candidate_id),
-                    mode,
-                )
-            raise RuntimeError(f"Unsupported invocation mode: {mode}")
-        except Exception as exc:
-            errors.append(f"{mode}[{index}]: {exc}")
-    raise RuntimeError("All invocation backends failed:\n" + "\n".join(errors))
-
+    mode = invocation.get("mode", "claude-agent-sdk-python")
+    if mode == "claude-agent-sdk-python":
+        return (
+            invoke_claude_agent_sdk_python(invocation, case, manifest, run_id, run_dir, candidate_id),
+            mode,
+        )
+    if mode == "cli-json":
+        return (
+            invoke_cli_json(invocation, case, manifest, run_id, run_dir, candidate_id),
+            mode,
+        )
+    raise RuntimeError(f"Unsupported invocation mode: {mode}")
 
 def main() -> int:
     args = parse_args()

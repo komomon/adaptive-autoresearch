@@ -8,7 +8,7 @@ experiment:
     kind: skill
     repo_path: D:/ccode/aicode/gitcode/back/authscan-2
     invocation:
-      mode: openai-compatible-chat
+      mode: claude-agent-sdk-python
       cwd: D:/ccode/aicode/gitcode/back/authscan-2
       model: qwen3.6-plus
       api_key_env: DASHSCOPE_API_KEY
@@ -48,7 +48,7 @@ experiment:
         enabled: true
         runner: script
         script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
-        mode: openai-compatible-chat
+        mode: claude-agent-sdk-python
         model: qwen3.6-plus
         api_key_env: DASHSCOPE_API_KEY
         base_url: https://dashscope.aliyuncs.com/compatible-mode/v1

@@ -74,40 +74,6 @@ def run_subprocess(
         ) from exc
 
 
-def openai_chat_completion(prompt: str, config: Dict[str, Any]) -> str:
-    try:
-        from openai import OpenAI  # type: ignore
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("openai package is not installed.") from exc
-
-    api_key = resolve_setting(config, "api_key")
-    base_url = resolve_setting(config, "base_url")
-    model = resolve_setting(config, "model")
-    if not api_key:
-        raise RuntimeError("Missing api_key/api_key_env for openai-compatible backend.")
-    if not base_url:
-        raise RuntimeError("Missing base_url/base_url_env for openai-compatible backend.")
-    if not model:
-        raise RuntimeError("Missing model/model_env for openai-compatible backend.")
-
-    client = OpenAI(api_key=api_key, base_url=base_url)
-    messages = []
-    system_prompt = config.get("system_prompt")
-    if system_prompt:
-        messages.append({"role": "system", "content": str(system_prompt)})
-    messages.append({"role": "user", "content": prompt})
-    completion = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=float(config.get("temperature", 0.0) or 0.0),
-        timeout=float(config["timeout_seconds"]) if config.get("timeout_seconds") is not None else None,
-    )
-    content = completion.choices[0].message.content
-    if not content:
-        raise RuntimeError("openai-compatible backend returned empty content.")
-    return str(content)
-
-
 def _claude_env_overrides(config: Dict[str, Any]) -> Dict[str, str | None]:
     overrides: Dict[str, str | None] = {}
     api_key = resolve_setting(config, "api_key")
