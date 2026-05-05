@@ -8,11 +8,8 @@
 
 ## Endpoint Compatibility
 
-- DeepSeek Anthropic-compatible access:
-  - `base_url=https://api.deepseek.com/anthropic`
-- DashScope Anthropic-compatible access:
-  - `base_url=https://dashscope.aliyuncs.com/apps/anthropic`
-  - model `qwen3.6-plus`
+- Endpoint: `https://api.deepseek.com/anthropic`
+- Model: `deepseek-v4-pro`
 
 ## Evaluation
 

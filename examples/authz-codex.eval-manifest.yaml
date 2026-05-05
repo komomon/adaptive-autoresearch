@@ -15,9 +15,9 @@ experiment:
     invocation:
       mode: claude-agent-sdk-python
       cwd: ../your-authz-audit-project
-      model: qwen3.6-plus
-      api_key_env: DASHSCOPE_API_KEY
-      base_url: https://dashscope.aliyuncs.com/apps/anthropic
+      model: deepseek-v4-pro
+      api_key_env: ANTHROPIC_AUTH_TOKEN
+      base_url: https://api.deepseek.com/anthropic
       prompt_template: |
         Use the target project's authorization audit workflow to analyze one case.
         Focus on identity binding, resource binding, output authorization, delayed authorization,
@@ -42,9 +42,9 @@ experiment:
         runner: script
         script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
         mode: claude-agent-sdk-python
-        model: qwen3.6-plus
-        api_key_env: DASHSCOPE_API_KEY
-        base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        model: deepseek-v4-pro
+        api_key_env: ANTHROPIC_AUTH_TOKEN
+        base_url: https://api.deepseek.com/anthropic
         cwd: ../your-authz-audit-project
     result_contract: target-audit-result
     optimization_policy:

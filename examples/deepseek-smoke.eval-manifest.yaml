@@ -10,7 +10,7 @@ experiment:
     invocation:
       mode: claude-agent-sdk-python
       cwd: D:/ccode/aicode/gitcode/back/authscan-2
-      model: deepseek-chat
+      model: deepseek-v4-pro
       api_key_env: ANTHROPIC_AUTH_TOKEN
       base_url: https://api.deepseek.com/anthropic
       prompt_template: |
@@ -40,7 +40,7 @@ experiment:
         enabled: true
         mode: claude-agent-sdk-python
         cwd: D:/ccode/aicode/gitcode/back/authscan-2
-        model: deepseek-chat
+        model: deepseek-v4-pro
         api_key_env: ANTHROPIC_AUTH_TOKEN
         base_url: https://api.deepseek.com/anthropic
         timeout_seconds: 120
@@ -121,7 +121,7 @@ grading:
 optimization:
   proposal:
     mode: claude-agent-sdk-python
-    model: deepseek-chat
+    model: deepseek-v4-pro
     api_key_env: ANTHROPIC_AUTH_TOKEN
     base_url: https://api.deepseek.com/anthropic
     timeout_seconds: 120
@@ -131,7 +131,7 @@ optimization:
   apply:
     mode: claude-agent-sdk-python
     cwd: D:/ccode/aicode/gitcode/back/authscan-2
-    model: deepseek-chat
+    model: deepseek-v4-pro
     api_key_env: ANTHROPIC_AUTH_TOKEN
     base_url: https://api.deepseek.com/anthropic
     permission_mode: acceptEdits

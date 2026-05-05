@@ -15,9 +15,9 @@ experiment:
     invocation:
       mode: claude-agent-sdk-python
       cwd: ../your-target-project
-      model: qwen3.6-plus
-      api_key_env: DASHSCOPE_API_KEY
-      base_url: https://dashscope.aliyuncs.com/apps/anthropic
+      model: deepseek-v4-pro
+      api_key_env: ANTHROPIC_AUTH_TOKEN
+      base_url: https://api.deepseek.com/anthropic
       # The target project is invoked via claude-agent-sdk-python.
       # Use allowed_tools, max_turns, and timeout_seconds to control behavior.
       prompt_template: |
@@ -49,17 +49,11 @@ experiment:
         runner: script
         script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
         mode: claude-agent-sdk-python
-        model: qwen3.6-plus
-        api_key_env: DASHSCOPE_API_KEY
-        base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        model: deepseek-v4-pro
+        api_key_env: ANTHROPIC_AUTH_TOKEN
+        base_url: https://api.deepseek.com/anthropic
         cwd: ../your-target-project
         # timeout_seconds: 120
-      # timeout_seconds: 120
-      #   model: qwen3.6-plus
-      #   api_key_env: DASHSCOPE_API_KEY
-      #   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      #   preload_files:
-      #     - SKILL.md
     result_contract: target-audit-result
     optimization_policy:
       methodology_first: true
@@ -192,16 +186,16 @@ meta_optimization:
 optimization:
   proposal:
     mode: claude-agent-sdk-python
-    model: qwen3.6-plus
-    api_key_env: DASHSCOPE_API_KEY
-    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    model: deepseek-v4-pro
+    api_key_env: ANTHROPIC_AUTH_TOKEN
+    base_url: https://api.deepseek.com/anthropic
     timeout_seconds: 120
     temperature: 0.0
   apply:
     mode: claude-agent-sdk-python
-    model: qwen3.6-plus
-    api_key_env: DASHSCOPE_API_KEY
-    base_url: https://dashscope.aliyuncs.com/apps/anthropic
+    model: deepseek-v4-pro
+    api_key_env: ANTHROPIC_AUTH_TOKEN
+    base_url: https://api.deepseek.com/anthropic
     permission_mode: acceptEdits
     allowed_tools:
       - Read
