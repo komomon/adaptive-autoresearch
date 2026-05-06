@@ -122,6 +122,30 @@ py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch
   --rounds 3
 ```
 
+### 场景 E：断点续跑（进程中断后恢复）
+
+如果 `auto` 过程中进程被中断（Ctrl+C、崩溃、机器重启等），只需用 `--run-dir` 指向上次同一个 run 目录重新运行：
+
+```powershell
+py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py auto `
+  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml `
+  --run-dir D:\ccode\aicode\aicode002-claudecode\autoresearch\autoresearch-results\runs\<run_id> `
+  --rounds 3
+```
+
+系统会自动：
+
+1. 跳过已完成的 baseline（检测 `decisions/baseline.decision.json`）
+2. 统计已完成的 round 数（通过 `decisions/` 下的 decision 文件数量）
+3. 清理中断 round 的残留文件（不完整 candidate、未 apply 的 packet）
+4. 从下一个未完成的 round 开始继续运行
+
+例如 3 轮中完成了 2 轮后中断，恢复时会打印：
+
+```
+[auto] Resuming: 2 round(s) already completed. Starting from round 3.
+```
+
 ## 4. manifest 主要改哪些
 
 日常主要改 manifest，不要先改 harness 代码。

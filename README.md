@@ -104,6 +104,7 @@ adaptive-autoresearch/
 - 自动提 packet
 - 自动改目标项目
 - lesson ledger 回灌
+- round 级别断点续跑（中断后通过 `--run-dir` 恢复，自动跳过已完成 round）
 
 当前仍需真实数据集继续优化的部分：
 
