@@ -18,8 +18,18 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
+from _shared import (
+    append_jsonl,
+    blank_split_score,
+    ensure_target_result_shape,
+    load_manifest,
+    read_json,
+    read_jsonl,
+    write_json,
+    write_jsonl,
+)
 from model_backends import (
     claude_agent_sdk_query,
     resolve_setting,
@@ -35,64 +45,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidate-id", help="Optional candidate id override.")
     parser.add_argument("--limit", type=int, help="Optional maximum number of cases to run.")
     return parser.parse_args()
-
-
-def require_yaml():
-    try:
-        import yaml  # type: ignore
-    except ImportError as exc:  # pragma: no cover
-        raise SystemExit(
-            "PyYAML is required to read the manifest. Install it before running this script."
-        ) from exc
-    return yaml
-
-
-def load_manifest(path: Path) -> Dict[str, Any]:
-    yaml = require_yaml()
-    with path.open("r", encoding="utf-8") as handle:
-        payload = yaml.safe_load(handle)
-    if not isinstance(payload, dict):
-        raise SystemExit("Manifest root must be a mapping.")
-    return payload
-
-
-def read_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                payload = json.loads(stripped)
-            except json.JSONDecodeError as exc:
-                raise SystemExit(f"Invalid JSON in {path} line {line_number}: {exc}") from exc
-            if not isinstance(payload, dict):
-                raise SystemExit(f"Invalid object in {path} line {line_number}")
-            rows.append(payload)
-    return rows
-
-
-def write_jsonl(path: Path, rows: Iterable[Dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-
-
-def write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def append_jsonl(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
 def target_results_dir(run_dir: Path) -> Path:
@@ -165,7 +117,6 @@ def format_context(case: Dict[str, Any], manifest: Dict[str, Any], run_id: str) 
     }
 
 
-
 def render_template(template: str, context: Dict[str, str]) -> str:
     class SafeDict(dict):
         def __missing__(self, key: str) -> str:
@@ -181,53 +132,6 @@ def build_command(base_command: str, arg_templates: List[str], context: Dict[str
         if rendered:
             command.append(rendered)
     return command
-
-
-def ensure_target_result_shape(case: Dict[str, Any], payload: Dict[str, Any], raw_output_ref: str) -> Dict[str, Any]:
-    payload.setdefault("case_id", case.get("case_id"))
-    payload.setdefault(
-        "entry",
-        {
-            "name": case.get("entry", {}).get("name"),
-            "transport": case.get("entry", {}).get("transport"),
-            "language": case.get("entry", {}).get("language"),
-        },
-    )
-    payload.setdefault(
-        "verdict",
-        {
-            "has_vulnerability": False,
-            "status": "unknown",
-            "confidence": 0.0,
-            "summary": "",
-        },
-    )
-    payload.setdefault(
-        "evidence",
-        {
-            "files": [],
-            "functions": [],
-            "locations": [],
-            "reasoning_mode": "report-derived",
-            "notes": [],
-        },
-    )
-    payload.setdefault("artifacts", {})
-    payload["raw_output_ref"] = raw_output_ref
-    return payload
-
-
-def blank_split_score(case_count: int = 0) -> Dict[str, Any]:
-    return {
-        "accuracy": 0.0,
-        "precision": 0.0,
-        "recall": 0.0,
-        "f1": 0.0,
-        "evidence_adequacy": 0.0,
-        "chain_completeness": 0.0,
-        "high_confidence_false_positive_rate": 0.0,
-        "case_count": case_count,
-    }
 
 
 def blank_candidate_score(candidate_id: str) -> Dict[str, Any]:
@@ -327,7 +231,7 @@ def run_external_canonicalizer(
         raise RuntimeError(
             f"Canonicalization script failed for case {case['case_id']}:\n"
             f"command={' '.join(command)}\n"
-            f"stderr={result.stderr}"
+            f"stdout={result.stdout}"
         )
     payload = read_json(output_file)
     return ensure_target_result_shape(case, payload, str(raw_file))
@@ -366,7 +270,7 @@ def run_grader(
         raise RuntimeError(
             f"Grader failed for split {split}:\n"
             f"command={' '.join(command)}\n"
-            f"stderr={result.stderr}"
+            f"stdout={result.stdout}"
         )
     return read_json(scoreboard_output)
 
@@ -477,7 +381,7 @@ def invoke_cli_json(
         raise RuntimeError(
             f"Target project command failed for case {case['case_id']}:\n"
             f"command={' '.join(command)}\n"
-            f"stderr={result.stderr}"
+            f"stdout={result.stdout}"
         )
 
     output_cfg = invocation.get("output", {})
@@ -575,11 +479,13 @@ def main() -> int:
 
     canonical_results: List[Dict[str, Any]] = []
     failures: List[Dict[str, Any]] = []
+    total_cases = len(cases)
 
-    for case in cases:
+    for i, case in enumerate(cases, start=1):
         case_id = str(case.get("case_id"))
         cached_result = load_cached_result(run_dir, candidate_id, case) if reuse_completed_cases else None
         if cached_result is not None:
+            print(f"    [{args.split} {i}/{total_cases}] case={case_id} (cached)", file=sys.stderr, flush=True)
             canonical_results.append(cached_result)
             write_case_status(
                 run_dir,
@@ -600,6 +506,7 @@ def main() -> int:
         started_at = time.monotonic()
         last_error: str | None = None
         completed = False
+        print(f"    [{args.split} {i}/{total_cases}] case={case_id}", file=sys.stderr, flush=True)
         for attempt in range(1, max_attempts + 1):
             try:
                 result, backend_used = invoke_target_project(invocation, case, manifest, run_id, run_dir, candidate_id)
@@ -646,6 +553,7 @@ def main() -> int:
                     time.sleep(retry_backoff_seconds)
 
         if not completed:
+            print(f"    [{args.split} {i}/{total_cases}] case={case_id} FAILED ({elapsed_seconds}s)", file=sys.stderr, flush=True)
             failures.append(
                 {
                     "case_id": case_id,
@@ -680,6 +588,12 @@ def main() -> int:
         len(canonical_results),
         len(failures),
         grading_score,
+    )
+
+    print(
+        f"    [{args.split}] done: {len(canonical_results)} ok / {len(failures)} failed "
+        f"f1={grading_score.get('f1', 0.0):.3f}",
+        file=sys.stderr, flush=True,
     )
 
     print(

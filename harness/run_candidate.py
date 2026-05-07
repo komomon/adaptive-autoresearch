@@ -16,11 +16,18 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from _shared import (
+    append_jsonl,
+    blank_split_score,
+    load_manifest,
+    read_json,
+    run_subprocess,
+    write_json,
+)
 from version_backend import read_candidate_metadata
 
 
@@ -44,65 +51,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def require_yaml():
-    try:
-        import yaml  # type: ignore
-    except ImportError as exc:  # pragma: no cover
-        raise SystemExit(
-            "PyYAML is required to read the manifest. Install it before running this script."
-        ) from exc
-    return yaml
-
-
-def load_manifest(path: Path) -> Dict[str, Any]:
-    yaml = require_yaml()
-    with path.open("r", encoding="utf-8") as handle:
-        payload = yaml.safe_load(handle)
-    if not isinstance(payload, dict):
-        raise SystemExit("Manifest root must be a mapping.")
-    return payload
-
-
-def read_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def append_jsonl(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
-
-
-def run_subprocess(command: List[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-
-
 def default_run_packet_script() -> Path:
     return (Path(__file__).resolve().parent / "run_packet.py").resolve()
-
-
-def blank_split_score(case_count: int = 0) -> Dict[str, Any]:
-    return {
-        "accuracy": 0.0,
-        "precision": 0.0,
-        "recall": 0.0,
-        "f1": 0.0,
-        "evidence_adequacy": 0.0,
-        "chain_completeness": 0.0,
-        "high_confidence_false_positive_rate": 0.0,
-        "case_count": case_count,
-    }
 
 
 def prepare_current_candidate(scoreboard: Dict[str, Any], candidate_id: str) -> Dict[str, Any]:
@@ -427,7 +377,7 @@ def run_split(
         raise RuntimeError(
             f"run_packet failed for split {split}:\n"
             f"command={' '.join(command)}\n"
-            f"stderr={result.stderr}"
+            f"stdout={result.stdout}"
         )
     try:
         payload = json.loads(result.stdout.strip().splitlines()[-1])
@@ -497,17 +447,23 @@ def main() -> int:
 
     executed_splits: List[str] = []
     split_runs: List[Dict[str, Any]] = []
-    for split in select_splits(strategy):
+    initial_splits = select_splits(strategy)
+    total_initial = len(initial_splits)
+    for si, split in enumerate(initial_splits, start=1):
         if split_case_count(scoreboard, split) <= 0:
             continue
+        print(f"    [candidate] Split {si}/{total_initial}: {split} ...", file=sys.stderr, flush=True)
         split_runs.append(run_split(manifest_path, run_dir, args.candidate_id, split, limits.get(split)))
         executed_splits.append(split)
 
     scoreboard = read_json(scoreboard_path)
     trailing_splits = maybe_extend_staged_splits(strategy, scoreboard, manifest, args.candidate_id)
-    for split in trailing_splits:
+    if trailing_splits:
+        print(f"    [candidate] Staged gate passed, running trailing splits: {trailing_splits}", file=sys.stderr, flush=True)
+    for si, split in enumerate(trailing_splits, start=1):
         if split_case_count(scoreboard, split) <= 0:
             continue
+        print(f"    [candidate] Trailing split {si}/{len(trailing_splits)}: {split} ...", file=sys.stderr, flush=True)
         split_runs.append(run_split(manifest_path, run_dir, args.candidate_id, split, limits.get(split)))
         executed_splits.append(split)
 
