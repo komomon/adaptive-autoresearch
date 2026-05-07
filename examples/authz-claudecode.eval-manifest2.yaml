@@ -1,21 +1,21 @@
 experiment:
-  name: authz-autoresearch-codex
+  name: authz-autoresearch-claudecode
   profile: authz-and-identity
-  adapter: codex
+  adapter: claudecode
   versioning:
     backend: git
     git:
       use_worktree: true
       branch_prefix: autoresearch/authz/
     local_dir:
-      snapshots_root: ./autoresearch-results/authz-codex/snapshots
+      snapshots_root: ./autoresearch-results/authz-claudecode/snapshots
   target_project:
     kind: agent-team
     repo_path: /Users/koko/Desktop/koko/compiler/ccode/aicode/claude001/ai_audit_object/myidea/myidea1-version9-gpt54-chinese-v3
     invocation:
       mode: claude-agent-sdk-python
       cwd: /Users/koko/Desktop/koko/compiler/ccode/aicode/claude001/ai_audit_object/myidea/myidea1-version9-gpt54-chinese-v3
-      model: deepseek-v4-pro
+      model: glm-5
       api_key_env: ANTHROPIC_AUTH_TOKEN
       base_url: https://openai.mybank.cn/api/anthropic
       prompt_template: |
@@ -42,7 +42,7 @@ experiment:
         runner: script
         script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
         mode: claude-agent-sdk-python
-        model: deepseek-v4-pro
+        model: glm-5
         api_key_env: ANTHROPIC_AUTH_TOKEN
         base_url: https://openai.mybank.cn/api/anthropic
         cwd: /Users/koko/Desktop/koko/compiler/ccode/aicode/claude001/ai_audit_object/myidea/myidea1-version9-gpt54-chinese-v3
@@ -178,7 +178,7 @@ meta_optimization:
     - hard_invariants
 
 outputs:
-  run_root: ./autoresearch-results/authz-codex
+  run_root: ./autoresearch-results/authz-claudecode
   ledgers:
     - run-state.json
     - scoreboard.json

@@ -11,13 +11,13 @@ experiment:
       snapshots_root: ./autoresearch-results/authz-claudecode/snapshots
   target_project:
     kind: agent-team
-    repo_path: ../your-authz-audit-project
+    repo_path: /Users/koko/Desktop/koko/compiler/ccode/aicode/claude001/ai_audit_object/myidea/myidea1-version9-gpt54-chinese-v3
     invocation:
       mode: claude-agent-sdk-python
-      cwd: ../your-authz-audit-project
-      model: deepseek-v4-pro
+      cwd: /Users/koko/Desktop/koko/compiler/ccode/aicode/claude001/ai_audit_object/myidea/myidea1-version9-gpt54-chinese-v3
+      model: glm-5
       api_key_env: ANTHROPIC_AUTH_TOKEN
-      base_url: https://api.deepseek.com/anthropic
+      base_url: https://openai.mybank.cn/api/anthropic
       prompt_template: |
         Use the target project's authorization audit workflow to analyze one case.
         Focus on identity binding, resource binding, output authorization, delayed authorization,
@@ -42,10 +42,10 @@ experiment:
         runner: script
         script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
         mode: claude-agent-sdk-python
-        model: deepseek-v4-pro
+        model: glm-5
         api_key_env: ANTHROPIC_AUTH_TOKEN
-        base_url: https://api.deepseek.com/anthropic
-        cwd: ../your-authz-audit-project
+        base_url: https://openai.mybank.cn/api/anthropic
+        cwd: /Users/koko/Desktop/koko/compiler/ccode/aicode/claude001/ai_audit_object/myidea/myidea1-version9-gpt54-chinese-v3
     result_contract: target-audit-result
     optimization_policy:
       methodology_first: true
@@ -81,9 +81,9 @@ experiment:
 dataset:
   source:
     kind: xlsx
-    path: ./datasets/authz_cases.xlsx
+    path: /Users/koko/Downloads/authz_datasets.xlsx
     sheet: cases
-  normalize_to: ./datasets/authz_cases.jsonl
+  normalize_to: /Users/koko/Desktop/koko/compiler/ccode/aicode/claude001/ai_audit_object/other_object/adaptive-autoresearch/datasets/authz_cases.jsonl
   normalization:
     mode: llm-assisted-when-sparse
     allow_sparse_rows: true
@@ -106,6 +106,10 @@ dataset:
     expected.key_sink: key_sink
     expected.actor_model: actor_model
     notes: notes
+  case_filter:
+    # range: [1, 10]             # use cases 1-10 (1-based, inclusive)
+    # indices: [1, 3, 5]         # use only these indices (1-based)
+    # case_ids: ["row-00001"]    # use only these case_ids
   split:
     dev: 0.50
     holdout: 0.25

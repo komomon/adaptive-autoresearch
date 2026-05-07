@@ -72,6 +72,10 @@ dataset:
     kind: jsonl
     path: ./adaptive-autoresearch/examples/smoke/benchmarkjava-two-cases.jsonl
   normalize_to: ./adaptive-autoresearch/examples/smoke/benchmarkjava-two-cases.jsonl
+  case_filter:
+    # range: [1, 10]             # use cases 1-10 (1-based, inclusive)
+    # indices: [1, 3, 5]         # use only these indices (1-based)
+    # case_ids: ["row-00001"]    # use only these case_ids
   split:
     dev: 0.50
     holdout: 0.25

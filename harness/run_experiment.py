@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, List
+
+from _shared import load_manifest, read_jsonl, write_json, write_jsonl
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,40 +30,40 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def require_yaml():
-    try:
-        import yaml  # type: ignore
-    except ImportError as exc:  # pragma: no cover
-        raise SystemExit(
-            "PyYAML is required to read the manifest. Install it before running this script."
-        ) from exc
-    return yaml
+def apply_case_filter(
+    cases: List[Dict[str, Any]],
+    case_filter: Dict[str, Any] | None,
+) -> List[Dict[str, Any]]:
+    """Filter cases by range/indices/case_ids from manifest dataset.case_filter."""
+    if not case_filter:
+        return cases
+    total = len(cases)
 
+    # Filter by range: [start, end] 1-based inclusive
+    range_spec = case_filter.get("range")
+    if range_spec and isinstance(range_spec, list) and len(range_spec) == 2:
+        start, end = int(range_spec[0]), int(range_spec[1])
+        start = max(1, start)
+        end = min(total, end)
+        return cases[start - 1 : end]
 
-def load_manifest(path: Path) -> Dict[str, Any]:
-    yaml = require_yaml()
-    with path.open("r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle)
-    if not isinstance(data, dict):
-        raise SystemExit("Manifest root must be a mapping.")
-    return data
+    # Filter by indices: [1, 3, 5] 1-based
+    indices = case_filter.get("indices")
+    if indices and isinstance(indices, list):
+        selected = []
+        for idx in indices:
+            i = int(idx) - 1
+            if 0 <= i < total:
+                selected.append(cases[i])
+        return selected
 
+    # Filter by case_ids: ["case-001", "case-002"]
+    case_ids = case_filter.get("case_ids")
+    if case_ids and isinstance(case_ids, list):
+        id_set = set(str(cid) for cid in case_ids)
+        return [c for c in cases if str(c.get("case_id")) in id_set]
 
-def read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                payload = json.loads(stripped)
-            except json.JSONDecodeError as exc:
-                raise SystemExit(f"Invalid JSON in normalized cases line {line_number}: {exc}") from exc
-            if not isinstance(payload, dict):
-                raise SystemExit(f"Invalid case payload on line {line_number}: must be an object.")
-            rows.append(payload)
-    return rows
+    return cases
 
 
 def stable_bucket(case_id: str) -> int:
@@ -88,18 +89,6 @@ def build_run_id(experiment_name: str) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     normalized = experiment_name.replace(" ", "-")
     return f"{normalized}-{stamp}"
-
-
-def write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def write_jsonl(path: Path, rows: Iterable[Dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def initialize_scoreboard() -> Dict[str, Any]:
@@ -193,6 +182,10 @@ def main() -> int:
         raise SystemExit(f"Normalized cases file not found: {normalized_path}")
 
     cases = read_jsonl(normalized_path)
+    total_available = len(cases)
+    cases = apply_case_filter(cases, dataset.get("case_filter"))
+    if len(cases) != total_available:
+        print(f"Case filter applied: {len(cases)} of {total_available} cases selected.", file=sys.stderr, flush=True)
     split_config = dataset.get("split", {})
     run_root = Path(outputs.get("run_root", "./autoresearch-results")).resolve()
     run_id = build_run_id(experiment.get("name", "autoresearch-run"))
