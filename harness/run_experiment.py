@@ -43,6 +43,8 @@ def apply_case_filter(
     range_spec = case_filter.get("range")
     if range_spec and isinstance(range_spec, list) and len(range_spec) == 2:
         start, end = int(range_spec[0]), int(range_spec[1])
+        if start > end:
+            raise SystemExit(f"dataset.case_filter.range: start ({start}) must be <= end ({end}).")
         start = max(1, start)
         end = min(total, end)
         return cases[start - 1 : end]
@@ -186,6 +188,8 @@ def main() -> int:
     cases = apply_case_filter(cases, dataset.get("case_filter"))
     if len(cases) != total_available:
         print(f"Case filter applied: {len(cases)} of {total_available} cases selected.", file=sys.stderr, flush=True)
+    if not cases:
+        raise SystemExit("No cases remaining after applying dataset.case_filter. Check your filter settings.")
     split_config = dataset.get("split", {})
     run_root = Path(outputs.get("run_root", "./autoresearch-results")).resolve()
     run_id = build_run_id(experiment.get("name", "autoresearch-run"))
