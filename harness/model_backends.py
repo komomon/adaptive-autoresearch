@@ -63,7 +63,8 @@ def run_subprocess(
         return subprocess.run(
             command,
             cwd=str(cwd),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=None,
             text=True,
             encoding="utf-8",
             env=env,
@@ -89,7 +90,12 @@ def _claude_env_overrides(config: Dict[str, Any]) -> Dict[str, str | None]:
     return overrides
 
 
-def claude_agent_sdk_query(prompt: str, cwd: Path, config: Dict[str, Any]) -> str:
+def claude_agent_sdk_query(
+    prompt: str,
+    cwd: Path,
+    config: Dict[str, Any],
+    heartbeat_label: str = "LLM query",
+) -> str:
     try:
         from claude_agent_sdk import query, ClaudeAgentOptions  # type: ignore
         from claude_agent_sdk.types import (
@@ -114,6 +120,19 @@ def claude_agent_sdk_query(prompt: str, cwd: Path, config: Dict[str, Any]) -> st
         else None
     )
     quiet = bool(config.get("quiet", False))
+    max_extensions = int(config.get("max_timeout_extensions", 1))
+    heartbeat_interval = float(config.get("heartbeat_interval", 60))
+
+    async def _heartbeat_loop() -> None:
+        start = asyncio.get_event_loop().time()
+        try:
+            while True:
+                await asyncio.sleep(heartbeat_interval)
+                elapsed = int(asyncio.get_event_loop().time() - start)
+                sys.stderr.write(f"  [heartbeat] {heartbeat_label} -- {elapsed}s elapsed\n")
+                sys.stderr.flush()
+        except asyncio.CancelledError:
+            return
 
     async def _stream_query() -> str:
         previous_cwd = Path.cwd()
@@ -171,14 +190,51 @@ def claude_agent_sdk_query(prompt: str, cwd: Path, config: Dict[str, Any]) -> st
             os.chdir(previous_cwd)
 
     with temporary_environment(_claude_env_overrides(config)):
-        async def _run_with_timeout() -> str:
+        async def _run_with_heartbeat_and_extend() -> str:
             if timeout_seconds is None:
-                return await _stream_query()
-            return await asyncio.wait_for(_stream_query(), timeout=timeout_seconds)
+                heartbeat = asyncio.create_task(_heartbeat_loop())
+                try:
+                    return await _stream_query()
+                finally:
+                    heartbeat.cancel()
+                    try:
+                        await heartbeat
+                    except asyncio.CancelledError:
+                        pass
+
+            extensions_used = 0
+            while True:
+                heartbeat = asyncio.create_task(_heartbeat_loop())
+                try:
+                    return await asyncio.wait_for(_stream_query(), timeout=timeout_seconds)
+                except asyncio.TimeoutError:
+                    heartbeat.cancel()
+                    try:
+                        await heartbeat
+                    except asyncio.CancelledError:
+                        pass
+                    if extensions_used < max_extensions:
+                        extensions_used += 1
+                        sys.stderr.write(
+                            f"  [heartbeat] {heartbeat_label} -- timeout expired, "
+                            f"auto-extending ({extensions_used}/{max_extensions})\n"
+                        )
+                        sys.stderr.flush()
+                    else:
+                        raise
+                finally:
+                    # Ensure heartbeat is cancelled if we exit via non-timeout path
+                    if not heartbeat.done():
+                        heartbeat.cancel()
+                        try:
+                            await heartbeat
+                        except asyncio.CancelledError:
+                            pass
 
         try:
-            return asyncio.run(_run_with_timeout())
-        except TimeoutError as exc:
+            return asyncio.run(_run_with_heartbeat_and_extend())
+        except (TimeoutError, asyncio.TimeoutError) as exc:
             raise RuntimeError(
-                f"claude-agent-sdk query timed out after {timeout_seconds} seconds."
+                f"claude-agent-sdk query timed out after {timeout_seconds}s"
+                f" (+{max_extensions} extensions) for {heartbeat_label}."
             ) from exc

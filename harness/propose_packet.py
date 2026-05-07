@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """
 Propose one methodology-first packet from failing cases.
+
+Uses a two-phase approach:
+  Phase A: analyze failures in small batches (2 per batch)
+  Phase B: synthesize all batch observations into one proposal
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
-import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
 from model_backends import claude_agent_sdk_query
-from run_experiment import load_manifest
-from version_backend import candidate_workspace_dir, read_json, write_json
+from _shared import load_manifest, parse_json_object, read_jsonl, write_json
+from version_backend import candidate_workspace_dir
+
+BATCH_SIZE = 2
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,37 +30,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="dev", help="Split to inspect, defaults to dev.")
     parser.add_argument("--packet-id", required=True, help="Packet id to write.")
     return parser.parse_args()
-
-
-def read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    if not path.exists():
-        return rows
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            stripped = line.strip()
-            if stripped:
-                rows.append(json.loads(stripped))
-    return rows
-
-
-def parse_json_object(text: str) -> Dict[str, Any]:
-    stripped = text.strip()
-    candidates = [stripped]
-    fenced = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, flags=re.DOTALL)
-    candidates.extend(fenced)
-    first_brace = stripped.find("{")
-    last_brace = stripped.rfind("}")
-    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-        candidates.append(stripped[first_brace : last_brace + 1])
-    for candidate in candidates:
-        try:
-            payload = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
-            return payload
-    raise SystemExit(f"Packet proposer did not return valid JSON. Raw response:\n{stripped[:4000]}")
 
 
 def list_editable_files(workspace: Path, editable_scope: List[str]) -> List[str]:
@@ -116,33 +89,68 @@ def build_failure_bundle(run_dir: Path, candidate_id: str, split: str) -> List[D
 def default_proposal_config(manifest: Dict[str, Any]) -> Dict[str, Any]:
     explicit = manifest.get("optimization", {}).get("proposal")
     if isinstance(explicit, dict):
+        explicit.setdefault("timeout_seconds", 3600)
+        explicit.setdefault("max_timeout_extensions", 1)
         return explicit
     invocation = manifest.get("experiment", {}).get("target_project", {}).get("invocation", {})
     if isinstance(invocation, dict) and invocation.get("mode") == "claude-agent-sdk-python":
         cfg = dict(invocation)
         cfg.setdefault("permission_mode", "default")
         cfg.setdefault("max_turns", 8)
-        cfg.setdefault("timeout_seconds", 120)
+        cfg.setdefault("timeout_seconds", 3600)
+        cfg.setdefault("max_timeout_extensions", 1)
         return cfg
     return {
         "mode": "claude-agent-sdk-python",
         "permission_mode": "default",
         "max_turns": 8,
-        "timeout_seconds": 120,
+        "timeout_seconds": 3600,
+        "max_timeout_extensions": 1,
     }
 
 
-def render_prompt(
+def render_batch_analysis_prompt(
+    batch_failures: List[Dict[str, Any]],
+    batch_index: int,
+    total_batches: int,
+) -> str:
+    return f"""You are analyzing a small batch of {len(batch_failures)} failing case(s) from a vulnerability-audit project.
+This is batch {batch_index + 1} of {total_batches}. Focus only on these cases.
+
+For each case, identify:
+- What went wrong (verdict mismatch, missing evidence, etc.)
+- The suspected root cause pattern
+- Whether this looks like a systematic methodology gap
+
+Failed cases in this batch:
+{json.dumps(batch_failures, ensure_ascii=False, indent=2)}
+
+Return a JSON object with this shape:
+{{
+  "observations": ["observation 1", "observation 2"],
+  "common_patterns": ["pattern shared across cases in this batch"],
+  "suspected_root_cause": "one-sentence root cause hypothesis"
+}}
+"""
+
+
+def render_synthesis_prompt(
     packet_id: str,
     candidate_id: str,
-    failures: List[Dict[str, Any]],
+    batch_observations: List[Dict[str, Any]],
     editable_files: List[str],
     optimization_policy: Dict[str, Any],
+    all_failure_case_ids: List[str],
 ) -> str:
     return f"""You are proposing exactly one methodology-first optimization packet for a target vulnerability-audit project.
 
+You have already analyzed all failing cases in small batches. Below are the accumulated observations from {len(batch_observations)} batch analyses covering {len(all_failure_case_ids)} total failures.
+
+Batch observations:
+{json.dumps(batch_observations, ensure_ascii=False, indent=2)}
+
 Hard constraints:
-1. Propose exactly one primary methodology change.
+1. Propose exactly one primary methodology change based on the observations above.
 2. Minimum necessary change only. No broad rewrites.
 3. Do not solve the benchmark by memorizing case patterns.
 4. Do not add vulnerability keyword rules or field-name shortcuts.
@@ -155,8 +163,7 @@ Optimization policy:
 Editable files:
 {json.dumps(editable_files, ensure_ascii=False, indent=2)}
 
-Failed cases:
-{json.dumps(failures, ensure_ascii=False, indent=2)}
+All failed case IDs: {json.dumps(all_failure_case_ids, ensure_ascii=False)}
 
 Return JSON in this shape:
 {{
@@ -201,18 +208,54 @@ def main() -> int:
     editable_scope = list(manifest.get("experiment", {}).get("target_project", {}).get("editable_scope", []))
     editable_files = list_editable_files(workspace, editable_scope)
     optimization_policy = manifest.get("experiment", {}).get("target_project", {}).get("optimization_policy", {})
-    prompt = render_prompt(args.packet_id, args.candidate_id, failures, editable_files, optimization_policy)
-
     proposal_cfg = default_proposal_config(manifest)
-    raw_text = claude_agent_sdk_query(prompt, workspace, proposal_cfg)
 
-    payload = parse_json_object(raw_text)
+    # Phase A: batch analysis
+    batches = [failures[i:i + BATCH_SIZE] for i in range(0, len(failures), BATCH_SIZE)]
+    batch_observations: List[Dict[str, Any]] = []
+
+    print(
+        f"  [propose] {len(failures)} failures → {len(batches)} batches of ≤{BATCH_SIZE}",
+        file=sys.stderr, flush=True,
+    )
+
+    for bi, batch in enumerate(batches):
+        label = f"propose batch {bi + 1}/{len(batches)}"
+        print(f"  [propose] {label} (cases: {', '.join(f.get('case_id', '?') for f in batch)}) ...", file=sys.stderr, flush=True)
+        batch_prompt = render_batch_analysis_prompt(batch, bi, len(batches))
+        try:
+            raw_batch = claude_agent_sdk_query(batch_prompt, workspace, proposal_cfg, heartbeat_label=label)
+            obs = parse_json_object(raw_batch, f"Batch analysis {bi + 1}")
+            obs["batch_index"] = bi
+            batch_observations.append(obs)
+        except Exception as exc:
+            print(f"  [propose] WARNING: batch {bi + 1} failed ({exc}), skipping", file=sys.stderr, flush=True)
+
+    if not batch_observations:
+        raise RuntimeError("All batch analyses failed. Cannot synthesize proposal.")
+
+    # Phase B: synthesis
+    all_failure_ids = [f["case_id"] for f in failures]
+    synth_label = f"propose synthesis ({len(batch_observations)} batches)"
+    print(f"  [propose] {synth_label} ...", file=sys.stderr, flush=True)
+
+    synthesis_prompt = render_synthesis_prompt(
+        args.packet_id,
+        args.candidate_id,
+        batch_observations,
+        editable_files,
+        optimization_policy,
+        all_failure_ids,
+    )
+    raw_text = claude_agent_sdk_query(synthesis_prompt, workspace, proposal_cfg, heartbeat_label=synth_label)
+
+    payload = parse_json_object(raw_text, "Packet proposer")
     payload.setdefault("packet_id", args.packet_id)
     payload.setdefault("source_candidate_id", args.candidate_id)
     payload.setdefault("target_files", [])
     payload.setdefault("edit_instructions", [])
     payload.setdefault("validation_expectation", {"should_improve": [], "must_not_regress": []})
-    payload["failure_case_ids"] = [item["case_id"] for item in failures]
+    payload["failure_case_ids"] = all_failure_ids
 
     packet_dir = run_dir / "packets" / args.packet_id
     write_json(packet_dir / "packet.json", payload)
@@ -223,6 +266,8 @@ def main() -> int:
             "split": args.split,
             "failure_count": len(failures),
             "editable_file_count": len(editable_files),
+            "batch_count": len(batches),
+            "batch_success_count": len(batch_observations),
         },
     )
     (packet_dir / "proposal.raw.txt").write_text(raw_text, encoding="utf-8")

@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from _shared import count_completed_rounds, cleanup_incomplete_round, read_json, run_subprocess, update_supervisor
+from _shared import count_completed_rounds, cleanup_incomplete_round, read_json, run_subprocess, update_supervisor, write_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -123,32 +123,61 @@ def main() -> int:
         )
 
     new_rounds = max(0, args.rounds - completed)
+    max_round_retries = 2
 
     for index in range(start_round, args.rounds + 1):
         print(f"\n{'='*60}", file=sys.stderr, flush=True)
         print(f"[auto] === Round {index}/{args.rounds} ===", file=sys.stderr, flush=True)
         print(f"{'='*60}", file=sys.stderr, flush=True)
 
-        update_supervisor(
-            run_dir,
-            status="advancing_candidate",
-            next_action=f"auto round {index}",
-            auto_round=index,
-        )
-        command = [
-            sys.executable,
-            str((Path(__file__).resolve().parent / "advance_candidate.py").resolve()),
-            "--manifest",
-            str(manifest_path),
-            "--run-dir",
-            str(run_dir),
-        ]
-        if args.strategy:
-            command.extend(["--strategy", args.strategy])
+        round_ok = False
+        for attempt in range(1, max_round_retries + 1):
+            try:
+                cleanup_incomplete_round(run_dir)
+                update_supervisor(
+                    run_dir,
+                    status="advancing_candidate",
+                    next_action=f"auto round {index} attempt {attempt}/{max_round_retries}",
+                    auto_round=index,
+                )
+                command = [
+                    sys.executable,
+                    str((Path(__file__).resolve().parent / "advance_candidate.py").resolve()),
+                    "--manifest", str(manifest_path),
+                    "--run-dir", str(run_dir),
+                ]
+                if args.strategy:
+                    command.extend(["--strategy", args.strategy])
 
-        print("[auto] Advancing candidate ...", file=sys.stderr, flush=True)
-        payload = run_json_command(command, cwd)
-        last_payload = payload
+                print(
+                    f"[auto] Advancing candidate (attempt {attempt}/{max_round_retries}) ...",
+                    file=sys.stderr, flush=True,
+                )
+                payload = run_json_command(command, cwd)
+                last_payload = payload
+                round_ok = True
+                break
+            except Exception as exc:
+                print(
+                    f"[auto] Round {index} attempt {attempt}/{max_round_retries} FAILED: {exc}",
+                    file=sys.stderr, flush=True,
+                )
+                if attempt < max_round_retries:
+                    print(f"[auto] Retrying round {index} ...", file=sys.stderr, flush=True)
+
+        if not round_ok:
+            update_supervisor(run_dir, status="round_crashed", auto_round=index)
+            run_state_path = run_dir / "run-state.json"
+            run_state = read_json(run_state_path)
+            counters = run_state.setdefault("counters", {"keeps": 0, "discards": 0, "crashes": 0})
+            counters["crashes"] = int(counters.get("crashes", 0) or 0) + 1
+            write_json(run_state_path, run_state)
+            print(
+                f"[auto] Round {index} CRASHED after {max_round_retries} attempts. "
+                f"Continuing to next round.",
+                file=sys.stderr, flush=True,
+            )
+            continue
 
         candidate_id = payload.get("candidate_id", "?")
         packet_id = payload.get("packet_id", "?")
