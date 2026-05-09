@@ -4,6 +4,11 @@ experiment:
   adapter: claudecode
   versioning:
     backend: local-dir
+    git:
+      use_worktree: true
+      branch_prefix: autoresearch/smoke/
+    local_dir:
+      snapshots_root: ./autoresearch-results/deepseek-smoke/snapshots
   target_project:
     kind: skill
     repo_path: D:/ccode/aicode/gitcode/back/authscan-2
@@ -30,14 +35,19 @@ experiment:
         - Glob
         - Grep
       permission_mode: default
+      thinking:
+        type: adaptive
+      effort: high
       max_turns: 12
-      timeout_seconds: 240
+      timeout_seconds: 3600
       max_attempts: 2
       retry_backoff_seconds: 2
       output:
         mode: text-stdout
       canonicalization:
         enabled: true
+        runner: script
+        script: ./harness/canonicalize_target_output.py
         mode: claude-agent-sdk-python
         cwd: D:/ccode/aicode/gitcode/back/authscan-2
         model: deepseek-v4-pro
@@ -83,7 +93,10 @@ dataset:
 execution:
   modes:
     - foreground
+    - background
+    - resume
   resume_completed_cases: true
+  case_concurrency: 3
   candidate_evaluation:
     strategy: staged
   case_retry:
@@ -115,6 +128,9 @@ grading:
   secondary_metrics:
     - evidence_adequacy
     - chain_completeness
+    - confidence_calibration
+    - false_positive_control
+    - false_negative_control
   keep_gate:
     require_dev_improvement: true
     require_holdout_non_regression: true
@@ -122,32 +138,36 @@ grading:
     require_evidence_non_regression: true
     require_high_confidence_fp_non_regression: true
 
-optimization:
-  proposal:
-    mode: claude-agent-sdk-python
-    model: deepseek-v4-pro
-    api_key_env: ANTHROPIC_AUTH_TOKEN
-    base_url: https://api.deepseek.com/anthropic
-    timeout_seconds: 120
-    permission_mode: default
-    max_turns: 8
-    cwd: D:/ccode/aicode/gitcode/back/authscan-2
-  apply:
-    mode: claude-agent-sdk-python
-    cwd: D:/ccode/aicode/gitcode/back/authscan-2
-    model: deepseek-v4-pro
-    api_key_env: ANTHROPIC_AUTH_TOKEN
-    base_url: https://api.deepseek.com/anthropic
-    permission_mode: acceptEdits
-    allowed_tools:
-      - Read
-      - Glob
-      - Grep
-      - Edit
-      - MultiEdit
-      - Write
-    max_turns: 16
-    timeout_seconds: 300
+meta_optimization:
+  enabled: true
+  optimize_axes:
+    - role_split
+    - topology_activation
+    - search_order
+    - packet_selection_policy
+    - verifier_intensity
+    - context_packing
+    - failure_taxonomy
+    - lesson_merge_policy
+  never_optimize:
+    - expected_labels
+    - holdout_membership
+    - grading_rubric_meaning
+    - vulnerability_taxonomy_semantics
+    - hard_invariants
 
 outputs:
   run_root: ./autoresearch-results
+  ledgers:
+    - run-state.json
+    - scoreboard.json
+    - candidate-ledger.jsonl
+    - lesson-ledger.md
+  case_artifacts:
+    - entry_pack.json
+    - path_pack.json
+    - context_pack.json
+    - guard_pack.json
+    - evidence_pack.json
+    - verdict.json
+    - grading.json

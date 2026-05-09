@@ -10,10 +10,11 @@ runner can process only the rows that require structure completion.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
+
+from _shared import read_jsonl, write_jsonl
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,18 +28,6 @@ def parse_args() -> argparse.Namespace:
         help="Optional markdown path for a reusable review prompt.",
     )
     return parser.parse_args()
-
-
-def read_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
-    with path.open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                yield json.loads(stripped)
-            except json.JSONDecodeError as exc:
-                raise SystemExit(f"Invalid JSON on line {line_number}: {exc}") from exc
 
 
 def build_review_packet(case: Dict[str, Any]) -> Dict[str, Any]:
@@ -61,13 +50,6 @@ def build_review_packet(case: Dict[str, Any]) -> Dict[str, Any]:
         ],
         "case": case,
     }
-
-
-def write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def build_prompt_markdown() -> str:

@@ -17,6 +17,7 @@ import argparse
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -32,6 +33,7 @@ from _shared import (
 )
 from model_backends import (
     claude_agent_sdk_query,
+    configure_sdk_env,
     resolve_setting,
     run_subprocess,
 )
@@ -407,6 +409,7 @@ def invoke_claude_agent_sdk_python(
     run_id: str,
     run_dir: Path,
     candidate_id: str,
+    skip_env_setup: bool = False,
 ) -> Dict[str, Any]:
     context = format_context(case, manifest, run_id)
     target_repo_path = resolved_target_repo_path(manifest, run_dir)
@@ -420,7 +423,9 @@ def invoke_claude_agent_sdk_python(
     system_prompt = invocation.get("system_prompt")
     if system_prompt:
         effective_invocation["system_prompt"] = render_template(str(system_prompt), context)
-    result_text = claude_agent_sdk_query(prompt, cwd, effective_invocation)
+    result_text = claude_agent_sdk_query(
+        prompt, cwd, effective_invocation, skip_env_setup=skip_env_setup,
+    )
     raw_dir = candidate_target_results_dir(run_dir, candidate_id) / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     raw_path = raw_dir / f"{case['case_id']}.agent-sdk.txt"
@@ -441,11 +446,15 @@ def invoke_target_project(
     run_id: str,
     run_dir: Path,
     candidate_id: str,
+    skip_env_setup: bool = False,
 ) -> tuple[Dict[str, Any], str]:
     mode = invocation.get("mode", "claude-agent-sdk-python")
     if mode == "claude-agent-sdk-python":
         return (
-            invoke_claude_agent_sdk_python(invocation, case, manifest, run_id, run_dir, candidate_id),
+            invoke_claude_agent_sdk_python(
+                invocation, case, manifest, run_id, run_dir, candidate_id,
+                skip_env_setup=skip_env_setup,
+            ),
             mode,
         )
     if mode == "cli-json":
@@ -454,6 +463,103 @@ def invoke_target_project(
             mode,
         )
     raise RuntimeError(f"Unsupported invocation mode: {mode}")
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(kw in msg for kw in ("rate limit", "rate_limit", "ratelimit", "429", "overloaded", "too many requests"))
+
+
+def _run_single_case(
+    case: Dict[str, Any],
+    case_index: int,
+    total_cases: int,
+    split_name: str,
+    invocation: Dict[str, Any],
+    manifest: Dict[str, Any],
+    run_id: str,
+    run_dir: Path,
+    candidate_id: str,
+    max_attempts: int,
+    retry_backoff_seconds: float,
+    reuse_completed_cases: bool,
+    skip_env_setup: bool,
+) -> tuple[Dict[str, Any] | None, Dict[str, Any] | None]:
+    """Execute one case with retry. Returns (result, None) or (None, failure)."""
+    case_id = str(case.get("case_id"))
+
+    if reuse_completed_cases:
+        cached_result = load_cached_result(run_dir, candidate_id, case)
+        if cached_result is not None:
+            print(
+                f"    [{split_name} {case_index}/{total_cases}] case={case_id} (cached)",
+                file=sys.stderr, flush=True,
+            )
+            write_case_status(run_dir, candidate_id, case_id, {
+                "case_id": case_id, "split": split_name, "candidate_id": candidate_id,
+                "status": "cached", "attempt_count": 0, "elapsed_seconds": 0.0,
+                "canonical_result_path": str(canonical_cache_path(run_dir, candidate_id, case_id)),
+            })
+            return (cached_result, None)
+
+    started_at = time.monotonic()
+    last_error: str | None = None
+    print(
+        f"    [{split_name} {case_index}/{total_cases}] case={case_id}",
+        file=sys.stderr, flush=True,
+    )
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result, backend_used = invoke_target_project(
+                invocation, case, manifest, run_id, run_dir, candidate_id,
+                skip_env_setup=skip_env_setup,
+            )
+            write_json(canonical_cache_path(run_dir, candidate_id, case_id), result)
+            elapsed_seconds = round(time.monotonic() - started_at, 3)
+            write_case_status(run_dir, candidate_id, case_id, {
+                "case_id": case_id, "split": split_name, "candidate_id": candidate_id,
+                "status": "completed", "attempt_count": attempt,
+                "elapsed_seconds": elapsed_seconds, "backend_used": backend_used,
+                "raw_output_ref": result.get("raw_output_ref"),
+                "canonical_result_path": str(canonical_cache_path(run_dir, candidate_id, case_id)),
+            })
+            return (result, None)
+        except Exception as exc:
+            last_error = str(exc)
+            elapsed_seconds = round(time.monotonic() - started_at, 3)
+            write_case_status(run_dir, candidate_id, case_id, {
+                "case_id": case_id, "split": split_name, "candidate_id": candidate_id,
+                "status": "retrying" if attempt < max_attempts else "failed",
+                "attempt_count": attempt, "elapsed_seconds": elapsed_seconds,
+                "last_error": last_error,
+            })
+            if attempt < max_attempts:
+                if _is_rate_limit_error(exc):
+                    base = max(retry_backoff_seconds, 5.0)
+                    backoff = min(base * (2 ** (attempt - 1)), 60.0)
+                    print(
+                        f"    [{split_name} {case_index}/{total_cases}] case={case_id} "
+                        f"rate limited, backoff {backoff:.1f}s (attempt {attempt}/{max_attempts})",
+                        file=sys.stderr, flush=True,
+                    )
+                    time.sleep(backoff)
+                elif retry_backoff_seconds > 0:
+                    time.sleep(retry_backoff_seconds)
+
+    elapsed_seconds = round(time.monotonic() - started_at, 3)
+    print(
+        f"    [{split_name} {case_index}/{total_cases}] case={case_id} FAILED ({elapsed_seconds}s)",
+        file=sys.stderr, flush=True,
+    )
+    return (None, {
+        "case_id": case_id, "split": split_name,
+        "attempt_count": max_attempts,
+        "elapsed_seconds": elapsed_seconds,
+        "error": last_error or "unknown error",
+        "status_path": str(case_status_path(run_dir, candidate_id, case_id)),
+    })
+
 
 def main() -> int:
     args = parse_args()
@@ -476,94 +582,46 @@ def main() -> int:
     retry_backoff_seconds = float(
         invocation.get("retry_backoff_seconds", retry_cfg.get("backoff_seconds", 0.0)) or 0.0
     )
+    case_concurrency = int(execution_cfg.get("case_concurrency", 1))
 
     canonical_results: List[Dict[str, Any]] = []
     failures: List[Dict[str, Any]] = []
     total_cases = len(cases)
 
-    for i, case in enumerate(cases, start=1):
-        case_id = str(case.get("case_id"))
-        cached_result = load_cached_result(run_dir, candidate_id, case) if reuse_completed_cases else None
-        if cached_result is not None:
-            print(f"    [{args.split} {i}/{total_cases}] case={case_id} (cached)", file=sys.stderr, flush=True)
-            canonical_results.append(cached_result)
-            write_case_status(
-                run_dir,
-                candidate_id,
-                case_id,
-                {
-                    "case_id": case_id,
-                    "split": args.split,
-                    "candidate_id": candidate_id,
-                    "status": "cached",
-                    "attempt_count": 0,
-                    "elapsed_seconds": 0.0,
-                    "canonical_result_path": str(canonical_cache_path(run_dir, candidate_id, case_id)),
-                },
+    if case_concurrency <= 1:
+        for i, case in enumerate(cases, start=1):
+            result, failure = _run_single_case(
+                case, i, total_cases, args.split, invocation, manifest,
+                run_id, run_dir, candidate_id, max_attempts, retry_backoff_seconds,
+                reuse_completed_cases, skip_env_setup=False,
             )
-            continue
-
-        started_at = time.monotonic()
-        last_error: str | None = None
-        completed = False
-        print(f"    [{args.split} {i}/{total_cases}] case={case_id}", file=sys.stderr, flush=True)
-        for attempt in range(1, max_attempts + 1):
-            try:
-                result, backend_used = invoke_target_project(invocation, case, manifest, run_id, run_dir, candidate_id)
-
-                write_json(canonical_cache_path(run_dir, candidate_id, case_id), result)
+            if result is not None:
                 canonical_results.append(result)
-                elapsed_seconds = round(time.monotonic() - started_at, 3)
-                write_case_status(
-                    run_dir,
-                    candidate_id,
-                    case_id,
-                    {
-                        "case_id": case_id,
-                        "split": args.split,
-                        "candidate_id": candidate_id,
-                        "status": "completed",
-                        "attempt_count": attempt,
-                        "elapsed_seconds": elapsed_seconds,
-                        "backend_used": backend_used,
-                        "raw_output_ref": result.get("raw_output_ref"),
-                        "canonical_result_path": str(canonical_cache_path(run_dir, candidate_id, case_id)),
-                    },
+            if failure is not None:
+                failures.append(failure)
+    else:
+        configure_sdk_env(invocation)
+        print(
+            f"    [{args.split}] running {total_cases} cases with concurrency={case_concurrency}",
+            file=sys.stderr, flush=True,
+        )
+        with ThreadPoolExecutor(max_workers=case_concurrency) as pool:
+            futures = {}
+            for i, case in enumerate(cases, start=1):
+                future = pool.submit(
+                    _run_single_case,
+                    case, i, total_cases, args.split, invocation, manifest,
+                    run_id, run_dir, candidate_id, max_attempts, retry_backoff_seconds,
+                    reuse_completed_cases, skip_env_setup=True,
                 )
-                completed = True
-                break
-            except Exception as exc:
-                last_error = str(exc)
-                elapsed_seconds = round(time.monotonic() - started_at, 3)
-                write_case_status(
-                    run_dir,
-                    candidate_id,
-                    case_id,
-                    {
-                        "case_id": case_id,
-                        "split": args.split,
-                        "candidate_id": candidate_id,
-                        "status": "retrying" if attempt < max_attempts else "failed",
-                        "attempt_count": attempt,
-                        "elapsed_seconds": elapsed_seconds,
-                        "last_error": last_error,
-                    },
-                )
-                if attempt < max_attempts and retry_backoff_seconds > 0:
-                    time.sleep(retry_backoff_seconds)
+                futures[future] = case
 
-        if not completed:
-            print(f"    [{args.split} {i}/{total_cases}] case={case_id} FAILED ({elapsed_seconds}s)", file=sys.stderr, flush=True)
-            failures.append(
-                {
-                    "case_id": case_id,
-                    "split": args.split,
-                    "attempt_count": max_attempts,
-                    "elapsed_seconds": round(time.monotonic() - started_at, 3),
-                    "error": last_error or "unknown error",
-                    "status_path": str(case_status_path(run_dir, candidate_id, case_id)),
-                }
-            )
+            for future in as_completed(futures):
+                result, failure = future.result()
+                if result is not None:
+                    canonical_results.append(result)
+                if failure is not None:
+                    failures.append(failure)
 
     results_dir = candidate_target_results_dir(run_dir, candidate_id)
     results_path = results_dir / f"{args.split}.results.jsonl"

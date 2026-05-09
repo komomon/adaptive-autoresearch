@@ -15,13 +15,9 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict
 
-from run_packet import (
-    invoke_target_project,
-    load_manifest,
-    write_json,
-)
+from _shared import load_manifest, read_json, write_json
+from run_packet import invoke_target_project
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,13 +27,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, help="Smoke output directory.")
     parser.add_argument("--run-id", default="smoke-run", help="Run id label used in prompts.")
     return parser.parse_args()
-
-
-def read_json(path: Path) -> Dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise SystemExit(f"Invalid JSON object in {path}")
-    return payload
 
 
 def main() -> int:

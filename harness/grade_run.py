@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, List, Tuple
+
+from _shared import read_jsonl, write_json, write_jsonl
 
 
 AUTHZ_COMPAT = {
@@ -50,35 +51,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scoreboard-output", required=True, help="Aggregate scoreboard json output.")
     parser.add_argument("--split", required=True, help="Split name, e.g. dev/holdout/cross_repo/canary.")
     return parser.parse_args()
-
-
-def read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                payload = json.loads(stripped)
-            except json.JSONDecodeError as exc:
-                raise SystemExit(f"Invalid JSON in {path} line {line_number}: {exc}") from exc
-            if not isinstance(payload, dict):
-                raise SystemExit(f"Invalid object in {path} line {line_number}")
-            rows.append(payload)
-    return rows
-
-
-def write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def write_jsonl(path: Path, rows: Iterable[Dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def expected_type_set(expected: Dict[str, Any]) -> set[str]:

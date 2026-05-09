@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, Dict, Iterator, List
 
@@ -42,6 +42,14 @@ def resolve_setting(config: Dict[str, Any], key: str) -> str | None:
         if env_value:
             return env_value
     return None
+
+
+def configure_sdk_env(config: Dict[str, Any]) -> None:
+    """Set SDK environment variables once before spawning concurrent threads."""
+    overrides = _claude_env_overrides(config)
+    for key, value in overrides.items():
+        if value is not None:
+            os.environ[key] = value
 
 
 def run_subprocess(
@@ -95,6 +103,7 @@ def claude_agent_sdk_query(
     cwd: Path,
     config: Dict[str, Any],
     heartbeat_label: str = "LLM query",
+    skip_env_setup: bool = False,
 ) -> str:
     try:
         from claude_agent_sdk import query, ClaudeAgentOptions  # type: ignore
@@ -135,61 +144,61 @@ def claude_agent_sdk_query(
             return
 
     async def _stream_query() -> str:
-        previous_cwd = Path.cwd()
-        os.chdir(cwd)
-        try:
-            options_kwargs: Dict[str, Any] = {"cwd": str(cwd)}
-            if allowed_tools:
-                options_kwargs["allowed_tools"] = allowed_tools
-            if permission_mode:
-                options_kwargs["permission_mode"] = permission_mode
-            if model:
-                options_kwargs["model"] = model
-            if system_prompt:
-                options_kwargs["system_prompt"] = str(system_prompt)
-            if max_turns is not None:
-                options_kwargs["max_turns"] = int(max_turns)
-            if permission_prompt_tool is not None:
-                options_kwargs["permission_prompt_tool"] = permission_prompt_tool
-            if permission_mode_tool_name is not None:
-                options_kwargs["permission_mode_tool_name"] = permission_mode_tool_name
-            options = ClaudeAgentOptions(**options_kwargs)
+        options_kwargs: Dict[str, Any] = {"cwd": str(cwd)}
+        if allowed_tools:
+            options_kwargs["allowed_tools"] = allowed_tools
+        if permission_mode:
+            options_kwargs["permission_mode"] = permission_mode
+        if model:
+            options_kwargs["model"] = model
+        if system_prompt:
+            options_kwargs["system_prompt"] = str(system_prompt)
+        if max_turns is not None:
+            options_kwargs["max_turns"] = int(max_turns)
+        if permission_prompt_tool is not None:
+            options_kwargs["permission_prompt_tool"] = permission_prompt_tool
+        if permission_mode_tool_name is not None:
+            options_kwargs["permission_mode_tool_name"] = permission_mode_tool_name
+        if config.get("thinking") is not None:
+            options_kwargs["thinking"] = config["thinking"]
+        if config.get("effort") is not None:
+            options_kwargs["effort"] = config["effort"]
+        options = ClaudeAgentOptions(**options_kwargs)
 
-            if not quiet:
-                sys.stderr.write(f"[SDK] query start, cwd={cwd}\n")
-                sys.stderr.flush()
+        if not quiet:
+            sys.stderr.write(f"[SDK] query start, cwd={cwd}\n")
+            sys.stderr.flush()
 
-            result_text = ""
-            turn = 0
-            async for message in query(prompt=prompt, options=options):
-                if isinstance(message, AssistantMessage):
-                    turn += 1
-                    for block in message.content:
-                        if isinstance(block, TextBlock) and block.text and not quiet:
-                            sys.stderr.write(f"[SDK turn {turn}] {block.text}\n")
-                            sys.stderr.flush()
-                        elif isinstance(block, ToolUseBlock) and not quiet:
-                            _input = {k: v for k, v in block.input.items() if k != "command"} if isinstance(block.input, dict) else {}
-                            _cmd = block.input.get("command", "") if isinstance(block.input, dict) else ""
-                            _desc = _cmd[:120] if _cmd else str(_input)[:120]
-                            sys.stderr.write(f"[SDK turn {turn}] tool: {block.name}({_desc})\n")
-                            sys.stderr.flush()
-                elif isinstance(message, ResultMessage):
-                    result_text = message.result if message.result else ""
-                    if not quiet:
-                        sys.stderr.write(f"[SDK] done, result length={len(result_text)}\n")
+        result_text = ""
+        turn = 0
+        async for message in query(prompt=prompt, options=options):
+            if isinstance(message, AssistantMessage):
+                turn += 1
+                for block in message.content:
+                    if isinstance(block, TextBlock) and block.text and not quiet:
+                        sys.stderr.write(f"[SDK turn {turn}] {block.text}\n")
                         sys.stderr.flush()
-                elif hasattr(message, "result") and message.result is not None:
-                    result_text = message.result
-                    if not quiet:
-                        sys.stderr.write(f"[SDK] done (fallback), result length={len(str(result_text))}\n")
+                    elif isinstance(block, ToolUseBlock) and not quiet:
+                        _input = {k: v for k, v in block.input.items() if k != "command"} if isinstance(block.input, dict) else {}
+                        _cmd = block.input.get("command", "") if isinstance(block.input, dict) else ""
+                        _desc = _cmd[:120] if _cmd else str(_input)[:120]
+                        sys.stderr.write(f"[SDK turn {turn}] tool: {block.name}({_desc})\n")
                         sys.stderr.flush()
+            elif isinstance(message, ResultMessage):
+                result_text = message.result if message.result else ""
+                if not quiet:
+                    sys.stderr.write(f"[SDK] done, result length={len(result_text)}\n")
+                    sys.stderr.flush()
+            elif hasattr(message, "result") and message.result is not None:
+                result_text = message.result
+                if not quiet:
+                    sys.stderr.write(f"[SDK] done (fallback), result length={len(str(result_text))}\n")
+                    sys.stderr.flush()
 
-            return result_text
-        finally:
-            os.chdir(previous_cwd)
+        return result_text
 
-    with temporary_environment(_claude_env_overrides(config)):
+    env_ctx = nullcontext() if skip_env_setup else temporary_environment(_claude_env_overrides(config))
+    with env_ctx:
         async def _run_with_heartbeat_and_extend() -> str:
             if timeout_seconds is None:
                 heartbeat = asyncio.create_task(_heartbeat_loop())
@@ -223,7 +232,6 @@ def claude_agent_sdk_query(
                     else:
                         raise
                 finally:
-                    # Ensure heartbeat is cancelled if we exit via non-timeout path
                     if not heartbeat.done():
                         heartbeat.cancel()
                         try:

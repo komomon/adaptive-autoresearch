@@ -5,36 +5,11 @@ Candidate workspace preparation and run-state wiring.
 
 from __future__ import annotations
 
-import json
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Any, Dict
 
-
-def read_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def append_jsonl(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
-
-
-def run_subprocess(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
+from _shared import append_jsonl, read_json, run_subprocess, write_json
 
 
 def detect_git_root(repo_path: Path) -> Path | None:

@@ -11,12 +11,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import re
 import sys
 from pathlib import Path
 from typing import Any, Dict
 
+from _shared import ensure_target_result_shape, parse_json_object, read_json
 from model_backends import claude_agent_sdk_query
 
 
@@ -96,77 +95,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def read_json(path: Path) -> Dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise SystemExit(f"Invalid JSON object in {path}")
-    return payload
-
-
-def ensure_target_result_shape(case: Dict[str, Any], payload: Dict[str, Any], raw_output_ref: str) -> Dict[str, Any]:
-    entry = case.get("entry", {})
-    payload.setdefault("case_id", case.get("case_id"))
-    payload.setdefault(
-        "entry",
-        {
-            "name": entry.get("name"),
-            "transport": entry.get("transport"),
-            "language": entry.get("language"),
-        },
-    )
-    payload.setdefault(
-        "verdict",
-        {
-            "has_vulnerability": False,
-            "status": "unknown",
-            "confidence": 0.0,
-            "summary": "",
-        },
-    )
-    payload.setdefault(
-        "evidence",
-        {
-            "files": [],
-            "functions": [],
-            "locations": [],
-            "reasoning_mode": "report-derived",
-            "notes": [],
-        },
-    )
-    payload.setdefault("artifacts", {})
-    payload["raw_output_ref"] = raw_output_ref
-    return payload
-
-
 def render_prompt(template: str, case: Dict[str, Any], raw_output: str) -> str:
     return template.format(
         case_json=json.dumps(case, ensure_ascii=False, indent=2),
         raw_output=raw_output,
     )
-
-
-def parse_json_object(text: str) -> Dict[str, Any]:
-    stripped = text.strip()
-    if not stripped:
-        raise SystemExit("Canonicalizer returned empty content.")
-
-    candidates = [stripped]
-    fenced = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, flags=re.DOTALL)
-    candidates.extend(fenced)
-
-    first_brace = stripped.find("{")
-    last_brace = stripped.rfind("}")
-    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-        candidates.append(stripped[first_brace : last_brace + 1])
-
-    for candidate in candidates:
-        try:
-            payload = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
-            return payload
-    raise SystemExit(f"Canonicalizer did not return a valid JSON object. Raw response:\n{stripped[:4000]}")
 
 
 def main() -> int:
@@ -199,13 +132,13 @@ def main() -> int:
             "permission_mode": args.permission_mode,
             "max_turns": args.max_turns,
             "timeout_seconds": args.timeout_seconds,
-            "model": os.environ.get("ANTHROPIC_MODEL"),
+            "model_env": "ANTHROPIC_MODEL",
             "base_url_env": "ANTHROPIC_BASE_URL",
             "api_key_env": "ANTHROPIC_API_KEY",
         },
     )
 
-    payload = parse_json_object(result_text)
+    payload = parse_json_object(result_text, "Canonicalizer")
     payload = ensure_target_result_shape(case, payload, raw_output_ref)
     serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
     if args.output:

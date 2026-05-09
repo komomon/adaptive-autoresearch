@@ -12,9 +12,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
+from _shared import load_manifest, read_json, write_json
 from model_backends import claude_agent_sdk_query
-from run_experiment import load_manifest
-from version_backend import candidate_workspace_dir, read_json, write_json
+from version_backend import candidate_workspace_dir
 
 
 def parse_args() -> argparse.Namespace:

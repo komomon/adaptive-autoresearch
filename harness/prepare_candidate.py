@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from run_experiment import load_manifest
+from _shared import load_manifest
 from version_backend import prepare_candidate_workspace
 
 

@@ -11,11 +11,11 @@ experiment:
       snapshots_root: ./autoresearch-results/authz-codex/snapshots
   target_project:
     kind: agent-team
-    repo_path: /Users/koko/Desktop/koko/compiler/ccode/aicode/claude001/ai_audit_object/myidea/myidea1-version9-gpt54-chinese-v3
+    repo_path: ../../myidea/myidea1-version9-gpt54-chinese-v3
     invocation:
       mode: claude-agent-sdk-python
-      cwd: /Users/koko/Desktop/koko/compiler/ccode/aicode/claude001/ai_audit_object/myidea/myidea1-version9-gpt54-chinese-v3
-      model: deepseek-v4-pro
+      cwd: ../../myidea/myidea1-version9-gpt54-chinese-v3
+      model: glm-5
       api_key_env: ANTHROPIC_AUTH_TOKEN
       base_url: https://openai.mybank.cn/api/anthropic
       prompt_template: |
@@ -35,17 +35,25 @@ experiment:
         - Grep
         - Bash
       permission_mode: acceptEdits
+      thinking:
+        type: adaptive
+      effort: high
+      max_turns: 12
+      timeout_seconds: 3600
+      max_attempts: 2
+      retry_backoff_seconds: 2
       output:
         mode: text-stdout
       canonicalization:
         enabled: true
         runner: script
-        script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
+        script: ./harness/canonicalize_target_output.py
         mode: claude-agent-sdk-python
-        model: deepseek-v4-pro
+        model: glm-5
         api_key_env: ANTHROPIC_AUTH_TOKEN
         base_url: https://openai.mybank.cn/api/anthropic
-        cwd: /Users/koko/Desktop/koko/compiler/ccode/aicode/claude001/ai_audit_object/myidea/myidea1-version9-gpt54-chinese-v3
+        cwd: ../../myidea/myidea1-version9-gpt54-chinese-v3
+        timeout_seconds: 120
     result_contract: target-audit-result
     optimization_policy:
       methodology_first: true
@@ -81,9 +89,9 @@ experiment:
 dataset:
   source:
     kind: xlsx
-    path: ./datasets/authz_cases.xlsx
+    path: ~/Downloads/authz_datasets.xlsx
     sheet: cases
-  normalize_to: ./datasets/authz_cases.jsonl
+  normalize_to: ../datasets/authz_cases.jsonl
   normalization:
     mode: llm-assisted-when-sparse
     allow_sparse_rows: true
@@ -121,8 +129,13 @@ execution:
     - foreground
     - background
     - resume
+  resume_completed_cases: true
+  case_concurrency: 3
   candidate_evaluation:
     strategy: staged
+  case_retry:
+    max_attempts: 2
+    backoff_seconds: 2
   packet:
     max_primary_change_count: 1
     max_dev_cases_per_round: 12

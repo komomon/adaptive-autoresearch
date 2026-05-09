@@ -37,6 +37,10 @@ experiment:
         - Grep
         - Bash
       permission_mode: acceptEdits
+      # Thinking & effort control (Claude Agent SDK):
+      # thinking:
+      #   type: adaptive
+      # effort: high
       # For claude-agent-sdk-python you can also cap the loop:
       # max_turns: 12
       # timeout_seconds: 240
@@ -124,6 +128,7 @@ execution:
     - background
     - resume
   resume_completed_cases: true
+  case_concurrency: 3
   candidate_evaluation:
     strategy: staged
   case_retry:
