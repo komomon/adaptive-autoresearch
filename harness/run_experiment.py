@@ -84,6 +84,35 @@ def assign_split(case_id: str, split_config: Dict[str, Any]) -> str:
     return "canary"
 
 
+def apply_case_filter(cases: List[Dict[str, Any]], case_filter: Dict[str, Any] | None) -> List[Dict[str, Any]]:
+    if not case_filter:
+        return cases
+    selected_indices: set[int] | None = None
+    if case_filter.get("range"):
+        raw_range = case_filter["range"]
+        if not isinstance(raw_range, list) or len(raw_range) != 2:
+            raise SystemExit("dataset.case_filter.range must be [start, end], 1-based inclusive.")
+        start = int(raw_range[0])
+        end = int(raw_range[1])
+        selected_indices = set(range(start, end + 1))
+    if case_filter.get("indices"):
+        indices = {int(item) for item in case_filter["indices"]}
+        selected_indices = indices if selected_indices is None else selected_indices & indices
+
+    selected_case_ids: set[str] | None = None
+    if case_filter.get("case_ids"):
+        selected_case_ids = {str(item) for item in case_filter["case_ids"]}
+
+    filtered: List[Dict[str, Any]] = []
+    for index, case in enumerate(cases, start=1):
+        if selected_indices is not None and index not in selected_indices:
+            continue
+        if selected_case_ids is not None and str(case.get("case_id")) not in selected_case_ids:
+            continue
+        filtered.append(case)
+    return filtered
+
+
 def build_run_id(experiment_name: str) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     normalized = experiment_name.replace(" ", "-")
@@ -113,19 +142,21 @@ def initialize_scoreboard() -> Dict[str, Any]:
         "high_confidence_false_positive_rate": 0.0,
         "case_count": 0,
     }
-    blank_candidate = {
-        "candidate_id": "baseline",
-        "splits": {
-            "dev": dict(blank_split),
-            "holdout": dict(blank_split),
-            "cross_repo": dict(blank_split),
-            "canary": dict(blank_split),
-        },
-    }
+    def blank_candidate() -> Dict[str, Any]:
+        return {
+            "candidate_id": "baseline",
+            "splits": {
+                "dev": dict(blank_split),
+                "holdout": dict(blank_split),
+                "cross_repo": dict(blank_split),
+                "canary": dict(blank_split),
+            },
+        }
+
     return {
-        "baseline": dict(blank_candidate),
-        "best": dict(blank_candidate),
-        "current": dict(blank_candidate),
+        "baseline": blank_candidate(),
+        "best": blank_candidate(),
+        "current": blank_candidate(),
     }
 
 
@@ -192,7 +223,9 @@ def main() -> int:
     if not normalized_path.exists():
         raise SystemExit(f"Normalized cases file not found: {normalized_path}")
 
-    cases = read_jsonl(normalized_path)
+    cases = apply_case_filter(read_jsonl(normalized_path), dataset.get("case_filter"))
+    if not cases:
+        raise SystemExit("No cases left after dataset.case_filter.")
     split_config = dataset.get("split", {})
     run_root = Path(outputs.get("run_root", "./autoresearch-results")).resolve()
     run_id = build_run_id(experiment.get("name", "autoresearch-run"))

@@ -5,6 +5,7 @@ Run one packet over a split of cases and collect canonicalized TargetAuditResult
 Supported target invocation modes:
 - cli-json
 - claude-agent-sdk-python
+- openai-compatible-chat
 
 The primary Python path is designed for target projects that are themselves
 skill / agent-team projects. It invokes Claude Agent SDK, captures raw output,
@@ -17,11 +18,14 @@ import argparse
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from model_backends import (
     claude_agent_sdk_query,
+    configure_sdk_env,
+    openai_chat_completion,
     resolve_setting,
     run_subprocess,
 )
@@ -163,6 +167,20 @@ def format_context(case: Dict[str, Any], manifest: Dict[str, Any], run_id: str) 
         "run_id": run_id,
         "case_json": json.dumps(safe_case_projection(case), ensure_ascii=False, indent=2),
     }
+
+
+def load_preloaded_files(cwd: Path, file_list: List[str]) -> str:
+    sections: List[str] = []
+    for item in file_list:
+        path = (cwd / item).resolve() if not Path(item).is_absolute() else Path(item).resolve()
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        sections.append(f"## FILE: {path}\n\n{content}")
+    return "\n\n".join(sections)
 
 
 
@@ -315,12 +333,20 @@ def run_external_canonicalizer(
     api_key = resolve_setting(canonical_cfg, "api_key")
     base_url = resolve_setting(canonical_cfg, "base_url")
     model = resolve_setting(canonical_cfg, "model")
-    if api_key:
-        env_overrides["ANTHROPIC_API_KEY"] = api_key
-    if base_url:
-        env_overrides["ANTHROPIC_BASE_URL"] = base_url
-    if model:
-        env_overrides["ANTHROPIC_MODEL"] = model
+    if mode == "openai-compatible-chat":
+        if api_key:
+            env_overrides["OPENAI_API_KEY"] = api_key
+        if base_url:
+            env_overrides["OPENAI_BASE_URL"] = base_url
+        if model:
+            env_overrides["OPENAI_MODEL"] = model
+    else:
+        if api_key:
+            env_overrides["ANTHROPIC_API_KEY"] = api_key
+        if base_url:
+            env_overrides["ANTHROPIC_BASE_URL"] = base_url
+        if model:
+            env_overrides["ANTHROPIC_MODEL"] = model
 
     result = run_subprocess(command, Path.cwd(), env_overrides=env_overrides or None)
     if result.returncode != 0:
@@ -337,6 +363,7 @@ def run_grader(
     run_dir: Path,
     candidate_id: str,
     split: str,
+    manifest_path: Path,
     grade_cfg: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     grade_cfg = grade_cfg or {}
@@ -360,6 +387,8 @@ def run_grader(
         str(scoreboard_output),
         "--split",
         split,
+        "--manifest",
+        str(manifest_path),
     ]
     result = run_subprocess(command, Path.cwd())
     if result.returncode != 0:
@@ -420,7 +449,10 @@ def update_run_state(
 ) -> Dict[str, Any]:
     run_state_path = run_dir / "run-state.json"
     run_state = read_json(run_state_path)
+    current_target_project = run_state.get("current", {}).get("target_project")
     run_state["current"] = {"candidate_id": candidate_id}
+    if isinstance(current_target_project, dict):
+        run_state["current"]["target_project"] = current_target_project
     run_state.setdefault("supervisor", {})
     run_state["supervisor"]["status"] = "packet_completed"
     run_state["supervisor"]["last_split"] = split
@@ -450,6 +482,11 @@ def append_candidate_ledger(
         "score": grading_score,
     }
     append_jsonl(run_dir / "candidate-ledger.jsonl", ledger_entry)
+
+
+def is_rate_limit_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(token in message for token in ("rate limit", "rate_limit", "ratelimit", "429", "too many requests", "overloaded"))
 
 
 def invoke_cli_json(
@@ -503,6 +540,7 @@ def invoke_claude_agent_sdk_python(
     run_id: str,
     run_dir: Path,
     candidate_id: str,
+    skip_env_setup: bool = False,
 ) -> Dict[str, Any]:
     context = format_context(case, manifest, run_id)
     target_repo_path = resolved_target_repo_path(manifest, run_dir)
@@ -516,7 +554,13 @@ def invoke_claude_agent_sdk_python(
     system_prompt = invocation.get("system_prompt")
     if system_prompt:
         effective_invocation["system_prompt"] = render_template(str(system_prompt), context)
-    result_text = claude_agent_sdk_query(prompt, cwd, effective_invocation)
+    result_text = claude_agent_sdk_query(
+        prompt,
+        cwd,
+        effective_invocation,
+        heartbeat_label=f"case {case.get('case_id')}",
+        skip_env_setup=skip_env_setup,
+    )
     raw_dir = candidate_target_results_dir(run_dir, candidate_id) / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     raw_path = raw_dir / f"{case['case_id']}.agent-sdk.txt"
@@ -530,6 +574,54 @@ def invoke_claude_agent_sdk_python(
     return ensure_target_result_shape(case, payload, str(raw_path))
 
 
+def invoke_openai_compatible_chat(
+    invocation: Dict[str, Any],
+    case: Dict[str, Any],
+    manifest: Dict[str, Any],
+    run_id: str,
+    run_dir: Path,
+    candidate_id: str,
+) -> Dict[str, Any]:
+    context = format_context(case, manifest, run_id)
+    target_repo_path = resolved_target_repo_path(manifest, run_dir)
+    cwd = Path(render_template(invocation.get("cwd", str(target_repo_path)), context)).resolve()
+    preload_files = invocation.get("preload_files", [])
+    context["preloaded_files"] = load_preloaded_files(cwd, list(preload_files)) if preload_files else ""
+    prompt_template = invocation.get(
+        "prompt_template",
+        "Analyze exactly one case.\n\n{preloaded_files}\n\nCase:\n{case_json}\n",
+    )
+    prompt = render_template(prompt_template, context)
+    effective_invocation = dict(invocation)
+    system_prompt = invocation.get("system_prompt")
+    if system_prompt:
+        effective_invocation["system_prompt"] = render_template(str(system_prompt), context)
+    result_text = openai_chat_completion(prompt, effective_invocation)
+
+    raw_dir = candidate_target_results_dir(run_dir, candidate_id) / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    raw_path = raw_dir / f"{case['case_id']}.openai.txt"
+    raw_path.write_text(result_text, encoding="utf-8")
+
+    canonical_cfg = invocation.get("canonicalization", {})
+    if canonical_cfg.get("enabled"):
+        return run_external_canonicalizer(canonical_cfg, case, raw_path, run_dir, candidate_id)
+
+    payload = json.loads(result_text)
+    return ensure_target_result_shape(case, payload, str(raw_path))
+
+
+def normalized_fallback_invocations(invocation: Dict[str, Any]) -> List[Dict[str, Any]]:
+    fallbacks: List[Dict[str, Any]] = []
+    singular = invocation.get("fallback_invocation")
+    plural = invocation.get("fallback_invocations", [])
+    if isinstance(singular, dict):
+        fallbacks.append(singular)
+    if isinstance(plural, list):
+        fallbacks.extend(item for item in plural if isinstance(item, dict))
+    return fallbacks
+
+
 def invoke_target_project(
     invocation: Dict[str, Any],
     case: Dict[str, Any],
@@ -537,19 +629,175 @@ def invoke_target_project(
     run_id: str,
     run_dir: Path,
     candidate_id: str,
+    skip_env_setup: bool = False,
 ) -> tuple[Dict[str, Any], str]:
-    mode = invocation.get("mode", "claude-agent-sdk-python")
-    if mode == "claude-agent-sdk-python":
-        return (
-            invoke_claude_agent_sdk_python(invocation, case, manifest, run_id, run_dir, candidate_id),
-            mode,
+    errors: List[str] = []
+    invocation_chain = [dict(invocation), *normalized_fallback_invocations(invocation)]
+    for index, candidate_invocation in enumerate(invocation_chain):
+        mode = candidate_invocation.get("mode", "claude-agent-sdk-python")
+        try:
+            if mode == "claude-agent-sdk-python":
+                return (
+                    invoke_claude_agent_sdk_python(
+                        candidate_invocation,
+                        case,
+                        manifest,
+                        run_id,
+                        run_dir,
+                        candidate_id,
+                        skip_env_setup=skip_env_setup,
+                    ),
+                    mode,
+                )
+            if mode == "openai-compatible-chat":
+                return (
+                    invoke_openai_compatible_chat(candidate_invocation, case, manifest, run_id, run_dir, candidate_id),
+                    mode,
+                )
+            if mode == "cli-json":
+                return (
+                    invoke_cli_json(candidate_invocation, case, manifest, run_id, run_dir, candidate_id),
+                    mode,
+                )
+            raise RuntimeError(f"Unsupported invocation mode: {mode}")
+        except Exception as exc:
+            errors.append(f"{mode}[{index}]: {exc}")
+    raise RuntimeError("All invocation backends failed:\n" + "\n".join(errors))
+
+
+def invocation_chain(invocation: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [dict(invocation), *normalized_fallback_invocations(invocation)]
+
+
+def prepare_invocation_environment(invocation: Dict[str, Any]) -> None:
+    for candidate_invocation in invocation_chain(invocation):
+        if candidate_invocation.get("mode", "claude-agent-sdk-python") == "claude-agent-sdk-python":
+            configure_sdk_env(candidate_invocation)
+            return
+
+
+def run_single_case(
+    case_index: int,
+    total_cases: int,
+    split: str,
+    case: Dict[str, Any],
+    invocation: Dict[str, Any],
+    manifest: Dict[str, Any],
+    run_id: str,
+    run_dir: Path,
+    candidate_id: str,
+    reuse_completed_cases: bool,
+    max_attempts: int,
+    retry_backoff_seconds: float,
+    skip_env_setup: bool,
+) -> tuple[int, Dict[str, Any] | None, Dict[str, Any] | None]:
+    case_id = str(case.get("case_id"))
+    cached_result = load_cached_result(run_dir, candidate_id, case) if reuse_completed_cases else None
+    if cached_result is not None:
+        sys.stderr.write(f"[packet] {split} {case_index}/{total_cases} {case_id} cached\n")
+        sys.stderr.flush()
+        write_case_status(
+            run_dir,
+            candidate_id,
+            case_id,
+            {
+                "case_id": case_id,
+                "split": split,
+                "candidate_id": candidate_id,
+                "status": "cached",
+                "attempt_count": 0,
+                "elapsed_seconds": 0.0,
+                "canonical_result_path": str(canonical_cache_path(run_dir, candidate_id, case_id)),
+            },
         )
-    if mode == "cli-json":
-        return (
-            invoke_cli_json(invocation, case, manifest, run_id, run_dir, candidate_id),
-            mode,
-        )
-    raise RuntimeError(f"Unsupported invocation mode: {mode}")
+        return case_index, cached_result, None
+
+    started_at = time.monotonic()
+    last_error: str | None = None
+    sys.stderr.write(f"[packet] {split} {case_index}/{total_cases} {case_id} running\n")
+    sys.stderr.flush()
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result, backend_used = invoke_target_project(
+                invocation,
+                case,
+                manifest,
+                run_id,
+                run_dir,
+                candidate_id,
+                skip_env_setup=skip_env_setup,
+            )
+            write_json(canonical_cache_path(run_dir, candidate_id, case_id), result)
+            elapsed_seconds = round(time.monotonic() - started_at, 3)
+            write_case_status(
+                run_dir,
+                candidate_id,
+                case_id,
+                {
+                    "case_id": case_id,
+                    "split": split,
+                    "candidate_id": candidate_id,
+                    "status": "completed",
+                    "attempt_count": attempt,
+                    "elapsed_seconds": elapsed_seconds,
+                    "backend_used": backend_used,
+                    "raw_output_ref": result.get("raw_output_ref"),
+                    "canonical_result_path": str(canonical_cache_path(run_dir, candidate_id, case_id)),
+                },
+            )
+            sys.stderr.write(
+                f"[packet] {split} {case_index}/{total_cases} {case_id} completed "
+                f"attempt={attempt} backend={backend_used} elapsed={elapsed_seconds}s\n"
+            )
+            sys.stderr.flush()
+            return case_index, result, None
+        except Exception as exc:
+            last_error = str(exc)
+            elapsed_seconds = round(time.monotonic() - started_at, 3)
+            write_case_status(
+                run_dir,
+                candidate_id,
+                case_id,
+                {
+                    "case_id": case_id,
+                    "split": split,
+                    "candidate_id": candidate_id,
+                    "status": "retrying" if attempt < max_attempts else "failed",
+                    "attempt_count": attempt,
+                    "elapsed_seconds": elapsed_seconds,
+                    "last_error": last_error,
+                },
+            )
+            if attempt < max_attempts:
+                backoff_seconds = retry_backoff_seconds
+                if is_rate_limit_error(exc):
+                    backoff_seconds = min(max(retry_backoff_seconds, 5.0) * (2 ** (attempt - 1)), 60.0)
+                sys.stderr.write(
+                    f"[packet] {split} {case_id} attempt {attempt}/{max_attempts} failed, "
+                    f"retrying in {backoff_seconds:.1f}s: {last_error[:300]}\n"
+                )
+                sys.stderr.flush()
+                if backoff_seconds > 0:
+                    time.sleep(backoff_seconds)
+            else:
+                sys.stderr.write(
+                    f"[packet] {split} {case_id} attempt {attempt}/{max_attempts} failed: {last_error[:500]}\n"
+                )
+                sys.stderr.flush()
+
+    return (
+        case_index,
+        None,
+        {
+            "case_id": case_id,
+            "split": split,
+            "attempt_count": max_attempts,
+            "elapsed_seconds": round(time.monotonic() - started_at, 3),
+            "error": last_error or "unknown error",
+            "status_path": str(case_status_path(run_dir, candidate_id, case_id)),
+        },
+    )
+
 
 def main() -> int:
     args = parse_args()
@@ -572,90 +820,75 @@ def main() -> int:
     retry_backoff_seconds = float(
         invocation.get("retry_backoff_seconds", retry_cfg.get("backoff_seconds", 0.0)) or 0.0
     )
+    case_concurrency = max(1, int(execution_cfg.get("case_concurrency", 1) or 1))
 
     canonical_results: List[Dict[str, Any]] = []
     failures: List[Dict[str, Any]] = []
+    total_cases = len(cases)
+    indexed_results: List[tuple[int, Dict[str, Any]]] = []
 
-    for case in cases:
-        case_id = str(case.get("case_id"))
-        cached_result = load_cached_result(run_dir, candidate_id, case) if reuse_completed_cases else None
-        if cached_result is not None:
-            canonical_results.append(cached_result)
-            write_case_status(
+    sys.stderr.write(
+        f"[packet] {args.split} candidate={candidate_id} cases={total_cases} "
+        f"concurrency={case_concurrency} max_attempts={max_attempts}\n"
+    )
+    sys.stderr.flush()
+
+    if case_concurrency > 1:
+        prepare_invocation_environment(invocation)
+        with ThreadPoolExecutor(max_workers=case_concurrency) as executor:
+            futures = [
+                executor.submit(
+                    run_single_case,
+                    case_index,
+                    total_cases,
+                    args.split,
+                    case,
+                    invocation,
+                    manifest,
+                    run_id,
+                    run_dir,
+                    candidate_id,
+                    reuse_completed_cases,
+                    max_attempts,
+                    retry_backoff_seconds,
+                    True,
+                )
+                for case_index, case in enumerate(cases, start=1)
+            ]
+            for future in as_completed(futures):
+                case_index, result, failure = future.result()
+                if result is not None:
+                    indexed_results.append((case_index, result))
+                if failure is not None:
+                    failures.append(failure)
+    else:
+        for case_index, case in enumerate(cases, start=1):
+            case_index, result, failure = run_single_case(
+                case_index,
+                total_cases,
+                args.split,
+                case,
+                invocation,
+                manifest,
+                run_id,
                 run_dir,
                 candidate_id,
-                case_id,
-                {
-                    "case_id": case_id,
-                    "split": args.split,
-                    "candidate_id": candidate_id,
-                    "status": "cached",
-                    "attempt_count": 0,
-                    "elapsed_seconds": 0.0,
-                    "canonical_result_path": str(canonical_cache_path(run_dir, candidate_id, case_id)),
-                },
+                reuse_completed_cases,
+                max_attempts,
+                retry_backoff_seconds,
+                False,
             )
-            continue
+            if result is not None:
+                indexed_results.append((case_index, result))
+            if failure is not None:
+                failures.append(failure)
 
-        started_at = time.monotonic()
-        last_error: str | None = None
-        completed = False
-        for attempt in range(1, max_attempts + 1):
-            try:
-                result, backend_used = invoke_target_project(invocation, case, manifest, run_id, run_dir, candidate_id)
+    canonical_results = [result for _, result in sorted(indexed_results, key=lambda item: item[0])]
 
-                write_json(canonical_cache_path(run_dir, candidate_id, case_id), result)
-                canonical_results.append(result)
-                elapsed_seconds = round(time.monotonic() - started_at, 3)
-                write_case_status(
-                    run_dir,
-                    candidate_id,
-                    case_id,
-                    {
-                        "case_id": case_id,
-                        "split": args.split,
-                        "candidate_id": candidate_id,
-                        "status": "completed",
-                        "attempt_count": attempt,
-                        "elapsed_seconds": elapsed_seconds,
-                        "backend_used": backend_used,
-                        "raw_output_ref": result.get("raw_output_ref"),
-                        "canonical_result_path": str(canonical_cache_path(run_dir, candidate_id, case_id)),
-                    },
-                )
-                completed = True
-                break
-            except Exception as exc:
-                last_error = str(exc)
-                elapsed_seconds = round(time.monotonic() - started_at, 3)
-                write_case_status(
-                    run_dir,
-                    candidate_id,
-                    case_id,
-                    {
-                        "case_id": case_id,
-                        "split": args.split,
-                        "candidate_id": candidate_id,
-                        "status": "retrying" if attempt < max_attempts else "failed",
-                        "attempt_count": attempt,
-                        "elapsed_seconds": elapsed_seconds,
-                        "last_error": last_error,
-                    },
-                )
-                if attempt < max_attempts and retry_backoff_seconds > 0:
-                    time.sleep(retry_backoff_seconds)
-
-        if not completed:
-            failures.append(
-                {
-                    "case_id": case_id,
-                    "split": args.split,
-                    "attempt_count": max_attempts,
-                    "elapsed_seconds": round(time.monotonic() - started_at, 3),
-                    "error": last_error or "unknown error",
-                    "status_path": str(case_status_path(run_dir, candidate_id, case_id)),
-                }
-            )
+    sys.stderr.write(
+        f"[packet] {args.split} finished: {len(canonical_results)} ok, {len(failures)} failed\n"
+    )
+    sys.stderr.flush()
 
     results_dir = candidate_target_results_dir(run_dir, candidate_id)
     results_path = results_dir / f"{args.split}.results.jsonl"
@@ -663,7 +896,7 @@ def main() -> int:
     write_jsonl(results_path, canonical_results)
     write_jsonl(failures_path, failures)
 
-    grading_score = run_grader(run_dir, candidate_id, args.split)
+    grading_score = run_grader(run_dir, candidate_id, args.split, Path(args.manifest).resolve())
     update_scoreboard(run_dir, candidate_id, args.split, grading_score)
     update_run_state(
         run_dir,

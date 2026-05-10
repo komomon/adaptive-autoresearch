@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument("--manifest", required=True)
     auto.add_argument("--run-dir")
     auto.add_argument("--rounds", type=int, default=3)
+    auto.add_argument("--round-retries", type=int)
     auto.add_argument("--strategy", choices=("staged", "full"))
 
     return parser

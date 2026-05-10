@@ -1,79 +1,37 @@
-# Quickstart
+# Adaptive Autoresearch Quickstart
 
-## 结论
+## 一句话入口
 
-日常只需要记住一个入口：
+日常只需要记住这个入口：
 
 ```powershell
 py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py
 ```
 
-它现在提供 5 个子命令：
+子命令：
 
-- `smoke`
-  先验证“能不能调起目标项目，并拿到可评分结果”
-- `init`
-  初始化一个 run
-- `eval`
-  跑一个已有 candidate
-- `advance`
-  推进一轮新 candidate
-- `auto`
-  从 baseline 开始自动跑完整优化循环
+- `smoke`：验证目标 skill/agent 项目能否被调起，并产出可评分结果。
+- `init`：初始化一个 run，生成 split、run-state、scoreboard。
+- `eval`：评测一个已有 candidate。
+- `advance`：推进一轮新 candidate。
+- `auto`：执行完整闭环：baseline -> 提案 -> 修改 -> 回归 -> keep/discard。
 
-## 1. 运行前准备
-
-必须满足：
-
-- 使用 `py -3.14`
-- 已安装：
-  - `claude-agent-sdk`
-  - `PyYAML`
-- 已设置环境变量 `ANTHROPIC_AUTH_TOKEN`
-- **Windows 用户额外要求**（macOS/Linux 不需要）：安装 [Git for Windows](https://git-scm.com/downloads/win)，并设置：
-  ```powershell
-  $env:CLAUDE_CODE_GIT_BASH_PATH="你的bash.exe路径"
-  ```
-  （默认路径通常为 `C:\Program Files\Git\bin\bash.exe` 或通过 `where bash` 查找）
-
-推荐先确认：
+## 运行前准备
 
 ```powershell
-$env:ANTHROPIC_AUTH_TOKEN="你的 key"
-# Windows 额外：
-$env:CLAUDE_CODE_GIT_BASH_PATH="D:\base_env\Git\usr\bin\bash.exe"
-
 py -3.14 -V
-```
-
-## 2. 最短可运行命令
-
-直接跑当前自带 smoke 示例（deepseek 端点）：
-
-```powershell
 $env:ANTHROPIC_AUTH_TOKEN="你的 key"
-$env:CLAUDE_CODE_GIT_BASH_PATH="你的 bash.exe 路径"
-
-py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py auto `
-  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml `
-  --rounds 1
 ```
 
-如果使用 dashscope 端点，把 manifest 换成 `authscan-benchmarkjava-sdk-smoke.eval-manifest.yaml`，并按该 manifest 中的 `api_key_env` 设置对应的环境变量。
+需要安装：
 
-这条命令会自动完成：
+- `PyYAML`
+- `openpyxl`
+- `claude-agent-sdk`
 
-1. 初始化 run
-2. 跑 baseline
-3. 生成一个 packet
-4. 修改 candidate 工作区
-5. 回跑评测
-6. 做 keep / discard
-7. 写入 lesson ledger
+Windows 如果使用 Claude Agent SDK，还需要按 SDK 要求配置 Git Bash。普通 OpenAI-compatible model call 不会自动加载 skill；真正调用 skill/agent 会话请使用 `claude-agent-sdk-python`。
 
-## 3. 你平时怎么用
-
-### 场景 A：先验证目标项目调用链能不能跑通
+## 最短 smoke 验证
 
 ```powershell
 py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py smoke `
@@ -82,39 +40,13 @@ py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch
   --output-dir D:\ccode\aicode\aicode002-claudecode\autoresearch\autoresearch-results\smoke\manual-smoke
 ```
 
-适合先看 3 件事：
+smoke 主要验证三件事：
 
-- 目标项目能不能被调起
-- rich output 能不能被 canonicalize 成 `TargetAuditResult`
-- grading 所需字段是不是齐
+- 目标项目能否被 SDK 调起。
+- 目标项目 raw output 能否 canonicalize 成 `TargetAuditResult`。
+- grader 所需字段是否齐全。
 
-### 场景 B：只评测一个已有版本
-
-先初始化：
-
-```powershell
-py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py init `
-  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml
-```
-
-再评测：
-
-```powershell
-py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py eval `
-  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml `
-  --run-dir D:\ccode\aicode\aicode002-claudecode\autoresearch\autoresearch-results\runs\<run_id> `
-  --candidate-id baseline
-```
-
-### 场景 C：在已有 run 上再推进一轮
-
-```powershell
-py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py advance `
-  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml `
-  --run-dir D:\ccode\aicode\aicode002-claudecode\autoresearch\autoresearch-results\runs\<run_id>
-```
-
-### 场景 D：让它自己连续跑多轮
+## 自动优化闭环
 
 ```powershell
 py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py auto `
@@ -122,75 +54,163 @@ py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch
   --rounds 3
 ```
 
-## 4. manifest 主要改哪些
+中断后恢复同一个 run：
 
-日常主要改 manifest，不要先改 harness 代码。
-
-模板文件：
-
-- [eval-manifest.template.yaml](D:/ccode/aicode/aicode002-claudecode/autoresearch/adaptive-autoresearch/templates/eval-manifest.template.yaml)
-
-可直接用的示例：
-
-- [deepseek-smoke.eval-manifest.yaml](D:/ccode/aicode/aicode002-claudecode/autoresearch/adaptive-autoresearch/examples/deepseek-smoke.eval-manifest.yaml) — deepseek 端点，claude-agent-sdk 纯路径
-
-### 4.1 必改项
-
-#### 目标项目路径
-
-```yaml
-experiment:
-  target_project:
-    repo_path: D:/your/target/project
+```powershell
+py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\main.py auto `
+  --manifest D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\examples\deepseek-smoke.eval-manifest.yaml `
+  --run-dir D:\ccode\aicode\aicode002-claudecode\autoresearch\autoresearch-results\runs\<run_id> `
+  --rounds 3
 ```
 
-#### 目标项目调用方式
+恢复时会跳过已完成 baseline，并根据已完成的非 baseline decision 文件继续下一轮。失败现场不会自动删除，便于排障。
 
-当前只保留 `claude-agent-sdk-python` 主路径，不再使用 openai-compatible-chat fallback：
+## 从 Excel 生成 JSONL
 
-```yaml
-invocation:
-  mode: claude-agent-sdk-python
-  api_key_env: ANTHROPIC_AUTH_TOKEN
-  base_url: https://api.deepseek.com/anthropic
+如果评测集是 `.xlsx`，先转成 `NormalizedCase` JSONL：
+
+```powershell
+py -3.14 D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\harness\normalize_xlsx_to_jsonl.py `
+  --input D:\path\to\cases.xlsx `
+  --sheet cases `
+  --output D:\ccode\aicode\aicode002-claudecode\autoresearch\adaptive-autoresearch\datasets\normalized-cases.jsonl `
+  --map repo.url=repo_url `
+  --map repo.branch=repo_branch `
+  --map entry.name=entry_name `
+  --map expected.has_vulnerability=has_vulnerability `
+  --optional-map case_id=case_id `
+  --optional-map entry.transport=transport `
+  --optional-map entry.language=language `
+  --optional-map expected.vulnerability_type=vulnerability_type `
+  --optional-map expected.vuln_function_or_line=vuln_function_or_line `
+  --optional-map expected.severity=severity `
+  --optional-map expected.key_anchor=key_anchor `
+  --optional-map expected.key_sink=key_sink `
+  --optional-map expected.actor_model=actor_model `
+  --optional-map notes=notes `
+  --default-transport other `
+  --default-language unknown
 ```
 
-#### 数据集路径
+必填映射：
 
-如果你已经有标准 JSONL：
+- `repo.url`
+- `repo.branch`
+- `entry.name`
+- `expected.has_vulnerability`
+
+缺少可选字段时，脚本会写入默认值或标记到 `normalization.missing_fields`，后续可再用 LLM review/canonicalization 补齐。
+
+生成后在 manifest 中指向 JSONL：
 
 ```yaml
 dataset:
   source:
     kind: jsonl
-    path: ./datasets/your-cases.jsonl
-  normalize_to: ./datasets/your-cases.jsonl
+    path: D:/ccode/aicode/aicode002-claudecode/autoresearch/adaptive-autoresearch/datasets/normalized-cases.jsonl
+  normalize_to: D:/ccode/aicode/aicode002-claudecode/autoresearch/adaptive-autoresearch/datasets/normalized-cases.jsonl
 ```
 
-如果你起点是 xlsx：
+## repo.url 支持格式
 
-- 先跑 [normalize_xlsx_to_jsonl.py](D:/ccode/aicode/aicode002-claudecode/autoresearch/adaptive-autoresearch/harness/normalize_xlsx_to_jsonl.py)
+`repo.url` 建议填写 Git 可 clone 的地址。推荐格式：
 
-#### 选哪个 profile
+```text
+https://github.com/org/repo.git
+https://github.com/org/repo
+D:/ccode/aicode/some-local-repo
+file:///D:/ccode/aicode/some-local-repo
+git@github.com:org/repo.git
+```
 
-推荐映射：
+本地路径不需要 `file://` 前缀，推荐直接写普通路径并使用 `/`：
+
+```text
+D:/ccode/aicode/BenchmarkJava-master
+```
+
+Windows 反斜杠路径也可以，但在 JSON 中需要转义：
+
+```json
+{
+  "repo": {
+    "url": "D:\\ccode\\aicode\\BenchmarkJava-master",
+    "branch": "master"
+  }
+}
+```
+
+当前版本注意：`repo.url` / `repo.branch` 会进入传给目标审计项目的 `case_json`，但 harness 还没有统一执行 clone/checkout。如果目标审计项目自己会根据 `repo.url` 拉代码，就可以直接使用；否则后续需要补 `repo materializer`，由 autoresearch 统一生成 `audited_repo_path`。
+
+## 常用 manifest 配置
+
+目标项目路径：
+
+```yaml
+experiment:
+  target_project:
+    repo_path: D:/ccode/aicode/gitcode/back/authscan-2
+```
+
+目标项目调用方式：
+
+```yaml
+experiment:
+  target_project:
+    invocation:
+      mode: claude-agent-sdk-python
+      cwd: D:/ccode/aicode/gitcode/back/authscan-2
+      model: qwen3.6-plus
+      api_key_env: ANTHROPIC_AUTH_TOKEN
+      base_url: https://dashscope.aliyuncs.com/apps/anthropic
+      thinking:
+        type: adaptive
+      effort: high
+      max_turns: 12
+      timeout_seconds: 3600
+      heartbeat_interval: 60
+      max_timeout_extensions: 1
+```
+
+执行控制：
+
+```yaml
+execution:
+  modes:
+    - foreground
+    - background
+    - resume
+  resume_completed_cases: true
+  case_concurrency: 1
+  candidate_evaluation:
+    strategy: staged
+  case_retry:
+    max_attempts: 2
+    backoff_seconds: 2
+  round_retry:
+    max_attempts: 2
+```
+
+`case_retry` 是单 case 调目标项目失败后的重试配置。`round_retry` 是整轮 candidate 推进失败后的重试配置。
+
+## profile 选择
 
 - 越权、未授权、身份冒用、跨租户：`authz-and-identity`
-- SQLi、RCE、SSRF、文件类：`traditional-sink-driven`
-- 红包、余额、支付、退款、订单资金逻辑：`business-logic-and-funds`
-- 还没定场景，只想先跑通：`generic-vuln-audit`
-- 组合链路验证：`composite-mixed-risk`
+- SQLi、RCE、SSRF、文件类、反序列化：`traditional-sink-driven`
+- 红包、余额、支付、退款、订单、优惠券、积分：`business-logic-and-funds`
+- 混合链路或不确定场景：`generic-vuln-audit`
+- 组合风险/跨域链路：`composite-mixed-risk`
 
-示例：
+越权审计推荐：
 
 ```yaml
 experiment:
   profile: authz-and-identity
 ```
 
-#### 哪些目录允许自动修改
+## editable_scope
 
-只允许改 prompts / skills / orchestrator：
+只允许优化方法论、prompt、skill、agent 编排时：
 
 ```yaml
 editable_scope:
@@ -201,128 +221,64 @@ editable_scope:
   - agents/
 ```
 
-允许改整个目标项目：
+允许修改整个目标项目时：
 
 ```yaml
 editable_scope:
   - ./
 ```
 
-### 4.2 重要默认值
+## staged 策略
 
-如果你不额外配置，现在默认会按这些策略跑：
+`staged` 的执行顺序：
 
-- `experiment.profile`
-  - 默认：`generic-vuln-audit`
-- `target_project.invocation.mode`
-  - 默认：`claude-agent-sdk-python`
-- `execution.resume_completed_cases`
-  - 默认：`true`
-- `execution.candidate_evaluation.strategy`
-  - 默认：`staged`
-- `execution.case_retry.max_attempts`
-  - 默认：`1`
-- `execution.case_retry.backoff_seconds`
-  - 默认：`2`
-- `execution.packet.max_primary_change_count`
-  - 默认：`1`
-- `optimization_policy.methodology_first`
-  - 默认：`true`
-- `optimization_policy.minimum_necessary_change`
-  - 默认：`true`
+```text
+dev
+-> dev 过门禁后才跑 holdout / cross_repo / canary
+-> 全部门禁通过才 keep
+```
 
-`staged` 的意思是：
+门禁关注：
 
-1. 先跑 `dev`
-2. `dev` 通过门禁后，再跑 `holdout / cross_repo / canary`
-3. 只有全部门禁过了才 keep
+- dev 有提升。
+- holdout 不下降。
+- cross_repo 不下降。
+- evidence adequacy 不下降。
+- 高置信误报率不上升。
 
-## 5. 不同场景怎么配
+`case_filter` 会先裁剪 case，再按 `dataset.split` 分桶；正式评测建议去掉 `case_filter`。
 
-### 5.1 你现在做越权审计
+## 结果在哪里看
 
-推荐：
-
-- `profile: authz-and-identity`
-- `invocation.mode: claude-agent-sdk-python`
-- `execution.candidate_evaluation.strategy: staged`
-- `editable_scope` 先小范围，再逐步放大
-
-### 5.2 做传统漏洞
-
-只要改：
-
-- `profile: traditional-sink-driven`
-
-其他主架构不用改。
-
-### 5.3 做业务资金漏洞
-
-推荐：
-
-- `profile: business-logic-and-funds`
-
-并尽量在 case 里补：
-
-- `notes`
-- `expected.business_invariant`
-- `expected.actor_model`
-
-## 6. 结果看哪里
-
-一次 run 的核心产物都在：
+一次 run 的核心产物在：
 
 ```text
 autoresearch-results/runs/<run_id>/
 ```
 
-平时最常看这几个：
+常看文件：
 
-- `run-state.json`
-  当前状态、当前 candidate、下一步动作
-- `scoreboard.json`
-  baseline / best / current 指标
-- `decisions/<candidate>.decision.json`
-  某个 candidate 为什么 keep / discard
-- `packets/<packet_id>/packet.json`
-  这一轮想改什么方法论点
-- `packets/<packet_id>/apply-result.json`
-  实际改了哪些文件
-- `lesson-ledger.md`
-  每轮沉淀的方法级经验
+- `run-state.json`：当前 candidate、supervisor 状态、最近失败阶段。
+- `scoreboard.json`：baseline/best/current 指标。
+- `decisions/<candidate>.decision.json`：candidate keep/discard 原因。
+- `packets/<packet_id>/packet.json`：本轮优化提案。
+- `packets/<packet_id>/apply-result.json`：实际修改了哪些文件。
+- `target-results/<candidate>/status/*.status.json`：每个 case 的执行/重试状态。
+- `lesson-ledger.md`：每轮沉淀的方法级经验。
 
-## 7. 当前推荐工作流
+## 当前边界
 
-1. 复制模板 manifest
-2. 改 `repo_path`
-3. 改 `dataset.source.path`
-4. 改 `profile`
-5. 改 `editable_scope`
-6. 先跑一次 `main.py smoke`
-7. 再跑 `main.py auto`
+已经具备：
 
-## 8. 当前版本边界
+- 调用目标 skill/agent 项目。
+- target raw output 到 `TargetAuditResult` 的 canonicalization。
+- case 级并发、重试、心跳、状态文件。
+- baseline / candidate 评测和 keep/discard。
+- 断点恢复和 round 重试。
+- candidate workspace 版本隔离。
 
-现在已经稳定可用的是：
+仍需注意：
 
-- 调目标项目（仅 `claude-agent-sdk-python` 路径）
-- canonicalize rich output
-- grading
-- baseline / candidate keep-discard
-- candidate workspace
-- 自动提 packet
-- 自动改目标项目
-- 自动 lesson 回灌
-
-现在还不应该误解成：
-
-- 自带高质量真实 benchmark
-- 已经保证 packet 提案一定最优
-- 可以完全替代人工复审
-
-## 9. Windows 注意事项（仅 Windows）
-
-- claude-agent-sdk 在 Windows 上需要 git-bash，必须设置 `CLAUDE_CODE_GIT_BASH_PATH`
-- 查找 git-bash 路径：`where bash`
-- 如未安装 Git for Windows：https://git-scm.com/downloads/win
-- macOS / Linux 自带 bash，无需此配置
+- 当前 harness 尚未统一拉取 `case.repo.url + case.repo.branch`，被审计代码拉取逻辑暂时需要目标审计项目自己完成。
+- 评测集质量仍需要人工维护，尤其是人工 expected 字段和关键证据位置。
+- 自动优化只应学习方法论、组织方式、证据结构和上下文策略，不能把评测集标签学成规则库。

@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from model_backends import claude_agent_sdk_query
+from model_backends import claude_agent_sdk_query, openai_chat_completion
 
 
 DEFAULT_PROMPT = """You are aligning a target audit project's rich raw output to a strict evaluation-facing JSON object.
@@ -80,7 +80,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         default="claude-agent-sdk-python",
-        choices=["claude-agent-sdk-python"],
+        choices=["claude-agent-sdk-python", "openai-compatible-chat"],
         help="Canonicalization backend.",
     )
     parser.add_argument("--prompt-file", help="Optional custom prompt file.")
@@ -191,19 +191,32 @@ def main() -> int:
     prompt = render_prompt(prompt_template, case, raw_output)
     cwd = Path(args.cwd).resolve()
 
-    result_text = claude_agent_sdk_query(
-        prompt,
-        cwd,
-        {
-            "allowed_tools": args.allowed_tool,
-            "permission_mode": args.permission_mode,
-            "max_turns": args.max_turns,
-            "timeout_seconds": args.timeout_seconds,
-            "model": os.environ.get("ANTHROPIC_MODEL"),
-            "base_url_env": "ANTHROPIC_BASE_URL",
-            "api_key_env": "ANTHROPIC_API_KEY",
-        },
-    )
+    if args.mode == "openai-compatible-chat":
+        result_text = openai_chat_completion(
+            prompt,
+            {
+                "timeout_seconds": args.timeout_seconds,
+                "model_env": "OPENAI_MODEL",
+                "base_url_env": "OPENAI_BASE_URL",
+                "api_key_env": "OPENAI_API_KEY",
+                "temperature": 0.0,
+            },
+        )
+    else:
+        result_text = claude_agent_sdk_query(
+            prompt,
+            cwd,
+            {
+                "allowed_tools": args.allowed_tool,
+                "permission_mode": args.permission_mode,
+                "max_turns": args.max_turns,
+                "timeout_seconds": args.timeout_seconds,
+                "model": os.environ.get("ANTHROPIC_MODEL"),
+                "base_url_env": "ANTHROPIC_BASE_URL",
+                "api_key_env": "ANTHROPIC_API_KEY",
+            },
+            heartbeat_label=f"canonicalize {case.get('case_id')}",
+        )
 
     payload = parse_json_object(result_text)
     payload = ensure_target_result_shape(case, payload, raw_output_ref)

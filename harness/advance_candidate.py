@@ -7,12 +7,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
 
-from run_experiment import load_manifest
-from version_backend import next_candidate_id, read_json, write_json
+from _shared import load_manifest, read_json, run_json_command, update_supervisor
+from version_backend import next_candidate_id
+
+
+class AdvanceStageError(RuntimeError):
+    def __init__(self, stage: str, message: str, candidate_id: str = "", packet_id: str = ""):
+        self.stage = stage
+        self.candidate_id = candidate_id
+        self.packet_id = packet_id
+        super().__init__(f"[{stage}] {message}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,26 +31,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="dev", help="Failure split to inspect. Defaults to dev.")
     parser.add_argument("--strategy", choices=("staged", "full"), help="Optional evaluation strategy override.")
     return parser.parse_args()
-
-
-def run_subprocess(command: list[str], cwd: Path) -> dict:
-    result = subprocess.run(
-        command,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Command failed:\ncommand={' '.join(command)}\nstdout={result.stdout}\nstderr={result.stderr}"
-        )
-    lines = result.stdout.strip().splitlines()
-    if not lines:
-        raise RuntimeError(f"Subprocess produced no output.
-command={' '.join(command)}
-stderr={result.stderr}")
-    return json.loads(lines[-1])
 
 
 def next_packet_id(run_dir: Path) -> str:
@@ -60,14 +47,6 @@ def next_packet_id(run_dir: Path) -> str:
         if suffix.isdigit():
             max_index = max(max_index, int(suffix))
     return f"packet-{max_index + 1:04d}"
-
-
-def update_supervisor(run_dir: Path, **fields: object) -> None:
-    run_state_path = run_dir / "run-state.json"
-    run_state = read_json(run_state_path)
-    run_state.setdefault("supervisor", {})
-    run_state["supervisor"].update(fields)
-    write_json(run_state_path, run_state)
 
 
 def append_lesson_entry(run_dir: Path, packet_id: str, candidate_id: str) -> None:
@@ -110,95 +89,132 @@ def main() -> int:
     packet_id = next_packet_id(run_dir)
     cwd = Path.cwd()
 
-    update_supervisor(
-        run_dir,
-        status="preparing_candidate_workspace",
-        next_action="prepare workspace",
-        active_candidate_id=candidate_id,
-    )
-    prepare_payload = run_subprocess(
-        [
+    try:
+        update_supervisor(
+            run_dir,
+            status="preparing_candidate_workspace",
+            next_action="prepare workspace",
+            active_candidate_id=candidate_id,
+        )
+        sys.stderr.write(f"[advance] Preparing workspace for {candidate_id} from {args.source}\n")
+        sys.stderr.flush()
+        prepare_payload = run_json_command(
+            [
+                sys.executable,
+                str((Path(__file__).resolve().parent / "prepare_candidate.py").resolve()),
+                "--manifest",
+                str(manifest_path),
+                "--run-dir",
+                str(run_dir),
+                "--candidate-id",
+                candidate_id,
+                "--source",
+                args.source,
+            ],
+            cwd,
+        )
+        sys.stderr.write(
+            f"[advance] Workspace prepared: source_candidate_id={prepare_payload.get('source_candidate_id', '?')}\n"
+        )
+        sys.stderr.flush()
+    except Exception as exc:
+        update_supervisor(run_dir, status="stage_failed", failed_stage="prepare")
+        raise AdvanceStageError("prepare", str(exc), candidate_id, packet_id) from exc
+
+    try:
+        update_supervisor(
+            run_dir,
+            status="proposing_packet",
+            next_action="propose packet",
+            active_packet_id=packet_id,
+        )
+        sys.stderr.write(f"[advance] Proposing packet {packet_id}\n")
+        sys.stderr.flush()
+        packet_payload = run_json_command(
+            [
+                sys.executable,
+                str((Path(__file__).resolve().parent / "propose_packet.py").resolve()),
+                "--manifest",
+                str(manifest_path),
+                "--run-dir",
+                str(run_dir),
+                "--candidate-id",
+                prepare_payload["source_candidate_id"],
+                "--split",
+                args.split,
+                "--packet-id",
+                packet_id,
+            ],
+            cwd,
+        )
+        packet_path = Path(packet_payload["packet_path"]).resolve()
+        sys.stderr.write(f"[advance] Packet proposed: {packet_path}\n")
+        sys.stderr.flush()
+    except Exception as exc:
+        update_supervisor(run_dir, status="stage_failed", failed_stage="propose", active_packet_id=packet_id)
+        raise AdvanceStageError("propose", str(exc), candidate_id, packet_id) from exc
+
+    try:
+        update_supervisor(
+            run_dir,
+            status="applying_packet",
+            next_action="apply packet",
+            active_packet_id=packet_id,
+        )
+        sys.stderr.write(f"[advance] Applying packet {packet_id} to {candidate_id}\n")
+        sys.stderr.flush()
+        apply_payload = run_json_command(
+            [
+                sys.executable,
+                str((Path(__file__).resolve().parent / "apply_packet.py").resolve()),
+                "--manifest",
+                str(manifest_path),
+                "--run-dir",
+                str(run_dir),
+                "--candidate-id",
+                candidate_id,
+                "--packet-file",
+                str(packet_path),
+            ],
+            cwd,
+        )
+        sys.stderr.write(f"[advance] Packet applied: modified_files={apply_payload.get('modified_files', [])}\n")
+        sys.stderr.flush()
+    except Exception as exc:
+        update_supervisor(run_dir, status="stage_failed", failed_stage="apply", active_packet_id=packet_id)
+        raise AdvanceStageError("apply", str(exc), candidate_id, packet_id) from exc
+
+    try:
+        update_supervisor(
+            run_dir,
+            status="evaluating_candidate",
+            next_action="run candidate evaluation",
+            active_packet_id=packet_id,
+        )
+        sys.stderr.write(f"[advance] Evaluating candidate {candidate_id}\n")
+        sys.stderr.flush()
+        candidate_command = [
             sys.executable,
-            str((Path(__file__).resolve().parent / "prepare_candidate.py").resolve()),
+            str((Path(__file__).resolve().parent / "run_candidate.py").resolve()),
             "--manifest",
             str(manifest_path),
             "--run-dir",
             str(run_dir),
             "--candidate-id",
             candidate_id,
-            "--source",
-            args.source,
-        ],
-        cwd,
-    )
-
-    update_supervisor(
-        run_dir,
-        status="proposing_packet",
-        next_action="propose packet",
-        active_packet_id=packet_id,
-    )
-    packet_payload = run_subprocess(
-        [
-            sys.executable,
-            str((Path(__file__).resolve().parent / "propose_packet.py").resolve()),
-            "--manifest",
-            str(manifest_path),
-            "--run-dir",
-            str(run_dir),
-            "--candidate-id",
-            prepare_payload["source_candidate_id"],
-            "--split",
-            args.split,
-            "--packet-id",
-            packet_id,
-        ],
-        cwd,
-    )
-    packet_path = Path(packet_payload["packet_path"]).resolve()
-
-    update_supervisor(
-        run_dir,
-        status="applying_packet",
-        next_action="apply packet",
-        active_packet_id=packet_id,
-    )
-    apply_payload = run_subprocess(
-        [
-            sys.executable,
-            str((Path(__file__).resolve().parent / "apply_packet.py").resolve()),
-            "--manifest",
-            str(manifest_path),
-            "--run-dir",
-            str(run_dir),
-            "--candidate-id",
-            candidate_id,
-            "--packet-file",
-            str(packet_path),
-        ],
-        cwd,
-    )
-
-    update_supervisor(
-        run_dir,
-        status="evaluating_candidate",
-        next_action="run candidate evaluation",
-        active_packet_id=packet_id,
-    )
-    candidate_command = [
-        sys.executable,
-        str((Path(__file__).resolve().parent / "run_candidate.py").resolve()),
-        "--manifest",
-        str(manifest_path),
-        "--run-dir",
-        str(run_dir),
-        "--candidate-id",
-        candidate_id,
-    ]
-    if args.strategy:
-        candidate_command.extend(["--strategy", args.strategy])
-    candidate_payload = run_subprocess(candidate_command, cwd)
-    append_lesson_entry(run_dir, packet_id, candidate_id)
+        ]
+        if args.strategy:
+            candidate_command.extend(["--strategy", args.strategy])
+        candidate_payload = run_json_command(candidate_command, cwd)
+        append_lesson_entry(run_dir, packet_id, candidate_id)
+        sys.stderr.write(
+            f"[advance] Evaluation done: decision={candidate_payload.get('decision', '?')} "
+            f"reasons={candidate_payload.get('decision_reasons', [])}\n"
+        )
+        sys.stderr.flush()
+    except Exception as exc:
+        update_supervisor(run_dir, status="stage_failed", failed_stage="evaluate", active_packet_id=packet_id)
+        raise AdvanceStageError("evaluate", str(exc), candidate_id, packet_id) from exc
 
     print(
         json.dumps(

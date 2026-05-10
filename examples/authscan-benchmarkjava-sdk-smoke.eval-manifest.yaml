@@ -30,8 +30,13 @@ experiment:
         - Glob
         - Grep
       permission_mode: default
+      thinking:
+        type: adaptive
+      effort: high
       max_turns: 12
-      timeout_seconds: 240
+      timeout_seconds: 3600
+      heartbeat_interval: 60
+      max_timeout_extensions: 1
       max_attempts: 2
       retry_backoff_seconds: 2
       output:
@@ -44,11 +49,17 @@ experiment:
         model: deepseek-v4-pro
         api_key_env: ANTHROPIC_AUTH_TOKEN
         base_url: https://api.deepseek.com/anthropic
-        timeout_seconds: 120dataset:
+        timeout_seconds: 120
+
+dataset:
   source:
     kind: jsonl
     path: ./adaptive-autoresearch/examples/smoke/benchmarkjava-two-cases.jsonl
   normalize_to: ./adaptive-autoresearch/examples/smoke/benchmarkjava-two-cases.jsonl
+  case_filter:
+    # range: [1, 10]
+    # indices: [1, 3, 5]
+    # case_ids: ["row-00001"]
   split:
     dev: 0.50
     holdout: 0.25
@@ -58,12 +69,17 @@ experiment:
 execution:
   modes:
     - foreground
+    - background
+    - resume
   resume_completed_cases: true
+  case_concurrency: 1
   candidate_evaluation:
     strategy: staged
   case_retry:
     max_attempts: 2
     backoff_seconds: 2
+  round_retry:
+    max_attempts: 2
   packet:
     max_primary_change_count: 1
     max_dev_cases_per_round: 2

@@ -35,6 +35,13 @@ experiment:
         - Grep
         - Bash
       permission_mode: acceptEdits
+      thinking:
+        type: adaptive
+      effort: high
+      max_turns: 12
+      timeout_seconds: 3600
+      max_attempts: 2
+      retry_backoff_seconds: 2
       output:
         mode: text-stdout
       canonicalization:
@@ -46,6 +53,7 @@ experiment:
         api_key_env: ANTHROPIC_AUTH_TOKEN
         base_url: https://api.deepseek.com/anthropic
         cwd: ../your-authz-audit-project
+        timeout_seconds: 120
     result_contract: target-audit-result
     optimization_policy:
       methodology_first: true
@@ -106,6 +114,10 @@ dataset:
     expected.key_sink: key_sink
     expected.actor_model: actor_model
     notes: notes
+  case_filter:
+    # range: [1, 10]             # use cases 1-10 (1-based, inclusive)
+    # indices: [1, 3, 5]         # use only these indices (1-based)
+    # case_ids: ["row-00001"]    # use only these case_ids
   split:
     dev: 0.50
     holdout: 0.25
@@ -117,8 +129,15 @@ execution:
     - foreground
     - background
     - resume
+  resume_completed_cases: true
+  case_concurrency: 3
   candidate_evaluation:
     strategy: staged
+  case_retry:
+    max_attempts: 2
+    backoff_seconds: 2
+  round_retry:
+    max_attempts: 2
   packet:
     max_primary_change_count: 1
     max_dev_cases_per_round: 12

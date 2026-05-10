@@ -269,16 +269,19 @@ def decide_candidate(
     manifest: Dict[str, Any],
     scoreboard: Dict[str, Any],
     candidate_id: str,
+    evaluated_splits: List[str] | None = None,
 ) -> Dict[str, Any]:
     reference = scoreboard.get("best", {})
     current = scoreboard.get("current", {})
     keep_gate = manifest.get("grading", {}).get("keep_gate", {})
     decision_reasons: List[str] = []
-    evaluated_splits = [
-        split
-        for split in ("dev", "holdout", "cross_repo", "canary")
-        if split_case_count(scoreboard, split) > 0
-    ]
+    if evaluated_splits is None:
+        evaluated_splits = [
+            split
+            for split in ("dev", "holdout", "cross_repo", "canary")
+            if split_case_count(scoreboard, split) > 0
+        ]
+    evaluated_split_set = set(evaluated_splits)
 
     if is_baseline(candidate_id):
         return {
@@ -304,7 +307,7 @@ def decide_candidate(
     for split_name, gate_key in (("holdout", "require_holdout_non_regression"), ("cross_repo", "require_cross_repo_non_regression")):
         if not keep_gate.get(gate_key, True):
             continue
-        if split_case_count(scoreboard, split_name) <= 0:
+        if split_name not in evaluated_split_set or split_case_count(scoreboard, split_name) <= 0:
             continue
         ok, failures = split_non_regression(current, reference, split_name)
         if not ok:
@@ -319,7 +322,7 @@ def decide_candidate(
 
     if keep_gate.get("require_evidence_non_regression", True):
         for split_name in ("dev", "holdout", "cross_repo"):
-            if split_case_count(scoreboard, split_name) <= 0:
+            if split_name not in evaluated_split_set or split_case_count(scoreboard, split_name) <= 0:
                 continue
             ok, reason = evidence_non_regression(current, reference, split_name)
             if not ok:
@@ -334,7 +337,7 @@ def decide_candidate(
 
     if keep_gate.get("require_high_confidence_fp_non_regression", True):
         for split_name in ("dev", "holdout", "cross_repo"):
-            if split_case_count(scoreboard, split_name) <= 0:
+            if split_name not in evaluated_split_set or split_case_count(scoreboard, split_name) <= 0:
                 continue
             ok, reason = high_conf_fp_non_regression(current, reference, split_name)
             if not ok:
@@ -347,7 +350,7 @@ def decide_candidate(
                 }
         decision_reasons.append("high-confidence false-positive non-regression passed")
 
-    if split_case_count(scoreboard, "canary") > 0:
+    if "canary" in evaluated_split_set and split_case_count(scoreboard, "canary") > 0:
         decision_reasons.append("canary executed for visibility")
 
     return {
@@ -449,10 +452,11 @@ def maybe_extend_staged_splits(
     scoreboard: Dict[str, Any],
     manifest: Dict[str, Any],
     candidate_id: str,
+    executed_splits: List[str],
 ) -> List[str]:
     if strategy != "staged":
         return []
-    decision = decide_candidate(manifest, scoreboard, candidate_id)
+    decision = decide_candidate(manifest, scoreboard, candidate_id, executed_splits)
     if decision["decision"] != "keep":
         return []
     return ["holdout", "cross_repo", "canary"]
@@ -504,7 +508,7 @@ def main() -> int:
         executed_splits.append(split)
 
     scoreboard = read_json(scoreboard_path)
-    trailing_splits = maybe_extend_staged_splits(strategy, scoreboard, manifest, args.candidate_id)
+    trailing_splits = maybe_extend_staged_splits(strategy, scoreboard, manifest, args.candidate_id, executed_splits)
     for split in trailing_splits:
         if split_case_count(scoreboard, split) <= 0:
             continue
@@ -512,7 +516,7 @@ def main() -> int:
         executed_splits.append(split)
 
     scoreboard = read_json(scoreboard_path)
-    decision = decide_candidate(manifest, scoreboard, args.candidate_id)
+    decision = decide_candidate(manifest, scoreboard, args.candidate_id, executed_splits)
     decision["strategy"] = strategy
     decision["evaluated_splits"] = executed_splits
     decision["executed_splits"] = executed_splits

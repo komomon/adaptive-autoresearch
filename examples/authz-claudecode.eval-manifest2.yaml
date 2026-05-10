@@ -1,63 +1,59 @@
 experiment:
-  name: multi-vuln-autoresearch
-  profile: generic-vuln-audit
-  adapter: codex
+  name: authz-autoresearch-claudecode-compact
+  profile: authz-and-identity
+  adapter: claudecode
   versioning:
     backend: git
     git:
       use_worktree: true
-      branch_prefix: autoresearch/
+      branch_prefix: autoresearch/authz/
     local_dir:
-      snapshots_root: ./autoresearch-results/snapshots
+      snapshots_root: ./autoresearch-results/authz-claudecode/snapshots
   target_project:
     kind: agent-team
-    repo_path: ../your-target-project
+    repo_path: ../your-authz-audit-project
     invocation:
       mode: claude-agent-sdk-python
-      cwd: ../your-target-project
+      cwd: ../your-authz-audit-project
       model: deepseek-v4-pro
       api_key_env: ANTHROPIC_AUTH_TOKEN
       base_url: https://api.deepseek.com/anthropic
-      # The target project is invoked via claude-agent-sdk-python.
-      # Use allowed_tools, max_turns, and timeout_seconds to control behavior.
       prompt_template: |
-        Use the target project's security audit skill or agent-team workflow to analyze exactly one case.
-        Follow the target project's own methodology.
+        Use the target project's authorization audit workflow to analyze one case.
+        Focus on identity binding, resource binding, output authorization, delayed authorization,
+        parent-method/interceptor handling, and redundant-defense awareness.
         Do not use evaluation labels as answers.
 
         Case:
         {case_json}
       system_prompt: |
-        You are running inside the target audit project.
-        Analyze one case only.
-        Prefer method-driven reasoning over pattern shortcuts.
+        You are running inside the target authorization audit project.
+        Analyze only one case and produce the target project's raw output.
       allowed_tools:
         - Read
         - Glob
         - Grep
         - Bash
       permission_mode: acceptEdits
-      # Thinking & effort are passed through to claude-agent-sdk-python when supported.
-      # thinking:
-      #   type: adaptive
-      # effort: high
-      # For claude-agent-sdk-python you can also cap the loop:
-      # max_turns: 12
-      # timeout_seconds: 240
-      # heartbeat_interval: 60
-      # max_timeout_extensions: 1
-      # max_attempts: 2
-      # retry_backoff_seconds: 2
+      thinking:
+        type: adaptive
+      effort: high
+      max_turns: 12
+      timeout_seconds: 3600
+      max_attempts: 2
+      retry_backoff_seconds: 2
       output:
         mode: text-stdout
       canonicalization:
         enabled: true
+        runner: script
+        script: ./adaptive-autoresearch/harness/canonicalize_target_output.py
         mode: claude-agent-sdk-python
         model: deepseek-v4-pro
         api_key_env: ANTHROPIC_AUTH_TOKEN
         base_url: https://api.deepseek.com/anthropic
-        cwd: ../your-target-project
-        # timeout_seconds: 120
+        cwd: ../your-authz-audit-project
+        timeout_seconds: 120
     result_contract: target-audit-result
     optimization_policy:
       methodology_first: true
@@ -75,8 +71,8 @@ experiment:
         - field_name_shortcuts
         - framework_specific_special_cases
         - evaluation_set_memorization
-    # If you want autoresearch to be able to modify the whole target project,
-    # replace editable_scope with:
+    # If you trust autoresearch to modify the full target project,
+    # set editable_scope to:
     #   - ./
     editable_scope:
       - prompts/
@@ -93,14 +89,14 @@ experiment:
 dataset:
   source:
     kind: xlsx
-    path: ./datasets/input.xlsx
+    path: ./datasets/authz_cases.xlsx
     sheet: cases
-  normalize_to: ./datasets/normalized-cases.jsonl
+  normalize_to: ./datasets/authz_cases.jsonl
   normalization:
     mode: llm-assisted-when-sparse
     allow_sparse_rows: true
     auto_generate_case_id: true
-    default_transport: other
+    default_transport: http
     default_language: unknown
     mark_missing_fields_for_review: true
   column_mapping:
@@ -113,11 +109,15 @@ dataset:
     expected.has_vulnerability: has_vulnerability
     expected.vulnerability_type: vulnerability_type
     expected.vuln_function_or_line: vuln_function_or_line
+    expected.severity: severity
+    expected.key_anchor: key_anchor
+    expected.key_sink: key_sink
+    expected.actor_model: actor_model
     notes: notes
   case_filter:
-    # range: [1, 10]             # 1-based inclusive range.
-    # indices: [1, 3, 5]         # 1-based exact row indices after normalization.
-    # case_ids: ["row-00001"]    # Exact normalized case ids.
+    # range: [1, 10]             # use cases 1-10 (1-based, inclusive)
+    # indices: [1, 3, 5]         # use only these indices (1-based)
+    # case_ids: ["row-00001"]    # use only these case_ids
   split:
     dev: 0.50
     holdout: 0.25
@@ -130,7 +130,7 @@ execution:
     - background
     - resume
   resume_completed_cases: true
-  case_concurrency: 1
+  case_concurrency: 3
   candidate_evaluation:
     strategy: staged
   case_retry:
@@ -143,9 +143,8 @@ execution:
     max_dev_cases_per_round: 12
     require_checkpoint_after_each_chain_extension: true
   topology:
-    default: S1
+    default: S2
     escalation_order:
-      - S0
       - S1
       - S2
       - S3
@@ -168,7 +167,6 @@ grading:
     - confidence_calibration
     - false_positive_control
     - false_negative_control
-    - business_invariant_coverage
   keep_gate:
     require_dev_improvement: true
     require_holdout_non_regression: true
@@ -194,32 +192,8 @@ meta_optimization:
     - vulnerability_taxonomy_semantics
     - hard_invariants
 
-optimization:
-  proposal:
-    mode: claude-agent-sdk-python
-    model: deepseek-v4-pro
-    api_key_env: ANTHROPIC_AUTH_TOKEN
-    base_url: https://api.deepseek.com/anthropic
-    timeout_seconds: 120
-    temperature: 0.0
-  apply:
-    mode: claude-agent-sdk-python
-    model: deepseek-v4-pro
-    api_key_env: ANTHROPIC_AUTH_TOKEN
-    base_url: https://api.deepseek.com/anthropic
-    permission_mode: acceptEdits
-    allowed_tools:
-      - Read
-      - Glob
-      - Grep
-      - Edit
-      - MultiEdit
-      - Write
-    max_turns: 16
-    timeout_seconds: 300
-
 outputs:
-  run_root: ./autoresearch-results
+  run_root: ./autoresearch-results/authz-claudecode
   ledgers:
     - run-state.json
     - scoreboard.json

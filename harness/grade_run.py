@@ -49,6 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True, help="Per-case grading jsonl output.")
     parser.add_argument("--scoreboard-output", required=True, help="Aggregate scoreboard json output.")
     parser.add_argument("--split", required=True, help="Split name, e.g. dev/holdout/cross_repo/canary.")
+    parser.add_argument("--manifest", help="Optional eval manifest for match_rules.")
     return parser.parse_args()
 
 
@@ -79,6 +80,20 @@ def write_jsonl(path: Path, rows: Iterable[Dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def load_match_rules(manifest_path: str | None) -> Dict[str, Any]:
+    if not manifest_path:
+        return {}
+    try:
+        import yaml  # type: ignore
+    except ImportError as exc:  # pragma: no cover
+        raise SystemExit("PyYAML is required when --manifest is provided.") from exc
+    with Path(manifest_path).resolve().open("r", encoding="utf-8") as handle:
+        manifest = yaml.safe_load(handle)
+    if not isinstance(manifest, dict):
+        return {}
+    return manifest.get("grading", {}).get("match_rules", {}) or {}
 
 
 def expected_type_set(expected: Dict[str, Any]) -> set[str]:
@@ -146,6 +161,11 @@ def evidence_adequacy(expected_locations: List[str], result: Dict[str, Any]) -> 
     return 0.0
 
 
+def has_code_evidence(result: Dict[str, Any]) -> bool:
+    evidence = result.get("evidence", {})
+    return any(evidence.get(key) for key in ("files", "functions", "locations"))
+
+
 def chain_completeness(result: Dict[str, Any]) -> float:
     artifacts = result.get("artifacts", {})
     score = 0
@@ -165,6 +185,11 @@ def precision_recall_f1(tp: int, fp: int, fn: int) -> Tuple[float, float, float]
 
 def main() -> int:
     args = parse_args()
+    match_rules = load_match_rules(args.manifest)
+    require_type_match = bool(match_rules.get("require_type_match_when_available", False))
+    require_evidence_for_high_confidence = bool(
+        match_rules.get("require_evidence_for_high_confidence", False)
+    )
     cases = {row["case_id"]: row for row in read_jsonl(Path(args.cases).resolve())}
     results = {row["case_id"]: row for row in read_jsonl(Path(args.results).resolve())}
 
@@ -203,19 +228,37 @@ def main() -> int:
         verdict = result.get("verdict", {})
         actual_has_vuln = as_bool(verdict.get("has_vulnerability"))
         actual_types = result_type_set(result)
-        verdict_match = (expected_has_vuln == actual_has_vuln) and (not missing_result)
         type_match = types_match(expected_types, actual_types) and (not missing_result)
+        verdict_match = (expected_has_vuln == actual_has_vuln) and (not missing_result)
+        if require_type_match and expected_has_vuln and actual_has_vuln and expected_types:
+            verdict_match = verdict_match and type_match
         evidence_score = evidence_adequacy(expected_locations, result)
         chain_score = chain_completeness(result)
         confidence = float(verdict.get("confidence", 0.0) or 0.0)
+        evidence_required_failed = (
+            require_evidence_for_high_confidence
+            and actual_has_vuln
+            and confidence >= 0.8
+            and not has_code_evidence(result)
+        )
+        if evidence_required_failed:
+            verdict_match = False
 
         if missing_result:
             if expected_has_vuln:
                 fn += 1
             else:
                 fp += 1
-        elif expected_has_vuln and actual_has_vuln:
+        elif (
+            expected_has_vuln
+            and actual_has_vuln
+            and (not require_type_match or not expected_types or type_match)
+            and not evidence_required_failed
+        ):
             tp += 1
+        elif expected_has_vuln and actual_has_vuln:
+            fp += 1
+            fn += 1
         elif not expected_has_vuln and actual_has_vuln:
             fp += 1
         elif expected_has_vuln and not actual_has_vuln:
@@ -242,6 +285,7 @@ def main() -> int:
                 "actual_has_vulnerability": actual_has_vuln,
                 "confidence": confidence,
                 "missing_result": missing_result,
+                "evidence_required_failed": evidence_required_failed,
             }
         )
 
