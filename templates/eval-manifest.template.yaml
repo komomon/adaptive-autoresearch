@@ -36,6 +36,9 @@ experiment:
         - Glob
         - Grep
         - Bash
+        - Edit
+        - MultiEdit
+        - Write
       permission_mode: acceptEdits
       # Thinking & effort are passed through to claude-agent-sdk-python when supported.
       # thinking:
@@ -212,6 +215,7 @@ optimization:
       - Read
       - Glob
       - Grep
+      - Bash
       - Edit
       - MultiEdit
       - Write

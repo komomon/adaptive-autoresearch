@@ -82,7 +82,8 @@ def run_subprocess(command: List[str], cwd: Path) -> subprocess.CompletedProcess
     return subprocess.run(
         command,
         cwd=str(cwd),
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=None,
         text=True,
         encoding="utf-8",
     )
@@ -430,7 +431,7 @@ def run_split(
         raise RuntimeError(
             f"run_packet failed for split {split}:\n"
             f"command={' '.join(command)}\n"
-            f"stderr={result.stderr}"
+            f"stdout={result.stdout}"
         )
     try:
         payload = json.loads(result.stdout.strip().splitlines()[-1])
@@ -501,17 +502,23 @@ def main() -> int:
 
     executed_splits: List[str] = []
     split_runs: List[Dict[str, Any]] = []
-    for split in select_splits(strategy):
+    initial_splits = select_splits(strategy)
+    total_initial = len(initial_splits)
+    for si, split in enumerate(initial_splits, start=1):
         if split_case_count(scoreboard, split) <= 0:
             continue
+        print(f"    [candidate] Split {si}/{total_initial}: {split} ...", file=sys.stderr, flush=True)
         split_runs.append(run_split(manifest_path, run_dir, args.candidate_id, split, limits.get(split)))
         executed_splits.append(split)
 
     scoreboard = read_json(scoreboard_path)
     trailing_splits = maybe_extend_staged_splits(strategy, scoreboard, manifest, args.candidate_id, executed_splits)
-    for split in trailing_splits:
+    if trailing_splits:
+        print(f"    [candidate] Staged gate passed, running trailing splits: {trailing_splits}", file=sys.stderr, flush=True)
+    for si, split in enumerate(trailing_splits, start=1):
         if split_case_count(scoreboard, split) <= 0:
             continue
+        print(f"    [candidate] Trailing split {si}/{len(trailing_splits)}: {split} ...", file=sys.stderr, flush=True)
         split_runs.append(run_split(manifest_path, run_dir, args.candidate_id, split, limits.get(split)))
         executed_splits.append(split)
 

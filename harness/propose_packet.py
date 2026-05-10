@@ -203,8 +203,13 @@ def main() -> int:
     optimization_policy = manifest.get("experiment", {}).get("target_project", {}).get("optimization_policy", {})
     prompt = render_prompt(args.packet_id, args.candidate_id, failures, editable_files, optimization_policy)
 
+    print(
+        f"  [propose] {len(failures)} failures, {len(editable_files)} editable files → proposing packet {args.packet_id} ...",
+        file=sys.stderr, flush=True,
+    )
+
     proposal_cfg = default_proposal_config(manifest)
-    raw_text = claude_agent_sdk_query(prompt, workspace, proposal_cfg)
+    raw_text = claude_agent_sdk_query(prompt, workspace, proposal_cfg, heartbeat_label=f"propose {args.packet_id}")
 
     payload = parse_json_object(raw_text)
     payload.setdefault("packet_id", args.packet_id)
@@ -226,6 +231,7 @@ def main() -> int:
         },
     )
     (packet_dir / "proposal.raw.txt").write_text(raw_text, encoding="utf-8")
+    print(f"  [propose] Packet {args.packet_id} written.", file=sys.stderr, flush=True)
     print(json.dumps({"packet_id": args.packet_id, "packet_path": str(packet_dir / "packet.json")}, ensure_ascii=False))
     return 0
 

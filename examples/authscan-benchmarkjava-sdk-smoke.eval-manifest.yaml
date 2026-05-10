@@ -29,6 +29,10 @@ experiment:
         - Read
         - Glob
         - Grep
+        - Bash
+        - Edit
+        - MultiEdit
+        - Write
       permission_mode: default
       thinking:
         type: adaptive
@@ -131,6 +135,7 @@ optimization:
       - Read
       - Glob
       - Grep
+      - Bash
       - Edit
       - MultiEdit
       - Write

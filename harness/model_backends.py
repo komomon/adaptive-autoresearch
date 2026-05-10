@@ -63,7 +63,8 @@ def run_subprocess(
         return subprocess.run(
             command,
             cwd=str(cwd),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=None,
             text=True,
             encoding="utf-8",
             env=env,

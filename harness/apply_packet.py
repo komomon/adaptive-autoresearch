@@ -99,10 +99,15 @@ def main() -> int:
     if apply_cfg.get("mode") != "claude-agent-sdk-python":
         raise SystemExit("Packet apply currently requires claude-agent-sdk-python mode.")
 
-    raw_text = claude_agent_sdk_query(prompt, workspace, apply_cfg)
+    print(
+        f"  [apply] Applying packet {packet.get('packet_id', '?')} (editable files: {target_files}) ...",
+        file=sys.stderr, flush=True,
+    )
+    raw_text = claude_agent_sdk_query(prompt, workspace, apply_cfg, heartbeat_label=f"apply {packet.get('packet_id', '?')}")
 
     after = collect_file_digests(workspace, target_files)
     changed = modified_files(before, after)
+    print(f"  [apply] Modified files: {changed}", file=sys.stderr, flush=True)
     packet_dir = Path(args.packet_file).resolve().parent
     write_json(
         packet_dir / "apply-result.json",

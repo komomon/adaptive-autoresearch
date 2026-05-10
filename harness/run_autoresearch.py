@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from _shared import (
+    cleanup_incomplete_round,
     count_completed_rounds,
     load_manifest,
     read_json,
@@ -47,7 +48,7 @@ def initialize_run(manifest_path: Path, cwd: Path) -> Path:
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"run_experiment failed:\nstdout={result.stdout}\nstderr={result.stderr}"
+            f"run_experiment failed:\nstdout={result.stdout}"
         )
     for line in result.stdout.splitlines():
         if line.startswith("Run dir: "):
@@ -80,39 +81,54 @@ def main() -> int:
     manifest_path = Path(args.manifest).resolve()
     manifest = load_manifest(manifest_path)
     cwd = Path.cwd()
+
+    # ── Phase 1: initialize run ──────────────────────────────────────────
     if args.run_dir:
         run_dir = Path(args.run_dir).resolve()
-        sys.stderr.write(f"[auto] Using existing run dir: {run_dir}\n")
+        print(f"[auto] Using existing run dir: {run_dir}", file=sys.stderr, flush=True)
     else:
-        sys.stderr.write("[auto] Initializing new run\n")
+        print("[auto] Initializing new run ...", file=sys.stderr, flush=True)
         run_dir = initialize_run(manifest_path, cwd)
-        sys.stderr.write(f"[auto] Run dir: {run_dir}\n")
-    sys.stderr.flush()
+        print(f"[auto] Run dir: {run_dir}", file=sys.stderr, flush=True)
 
+    # ── Phase 2: establish baseline ──────────────────────────────────────
+    baseline_decision_path = run_dir / "decisions" / "baseline.decision.json"
+    if baseline_decision_path.exists():
+        print("[auto] Baseline already exists, skipping.", file=sys.stderr, flush=True)
+    else:
+        print("[auto] Running baseline evaluation ...", file=sys.stderr, flush=True)
     baseline_decision = ensure_baseline(manifest_path, run_dir, args.strategy, cwd)
-    sys.stderr.write(
-        f"[auto] Baseline decision={baseline_decision.get('decision', '?')} "
-        f"reasons={baseline_decision.get('decision_reasons', [])}\n"
+    print(
+        f"[auto] Baseline decision: {baseline_decision.get('decision', '?')} | "
+        f"reasons: {', '.join(baseline_decision.get('decision_reasons', []))}",
+        file=sys.stderr, flush=True,
     )
-    sys.stderr.flush()
+
     last_payload: Dict[str, Any] = {"baseline": baseline_decision}
-    completed_rounds = count_completed_rounds(run_dir)
-    start_round = completed_rounds + 1
+
+    # ── Phase 3: advance candidates ──────────────────────────────────────
+    completed = count_completed_rounds(run_dir)
+    cleanup_incomplete_round(run_dir)
+    start_round = completed + 1
+
+    if completed > 0:
+        print(
+            f"[auto] Resuming: {completed} round(s) already completed. "
+            f"Starting from round {start_round}.",
+            file=sys.stderr, flush=True,
+        )
+
     configured_round_retries = manifest.get("execution", {}).get("round_retry", {}).get("max_attempts", 2)
     round_retries = args.round_retries if args.round_retries is not None else int(configured_round_retries or 2)
 
-    if completed_rounds:
-        sys.stderr.write(
-            f"[auto] Resuming run: {completed_rounds} completed round(s), "
-            f"starting at round {start_round}.\n"
-        )
-        sys.stderr.flush()
-
     for index in range(start_round, args.rounds + 1):
+        print(f"\n{'='*60}", file=sys.stderr, flush=True)
+        print(f"[auto] === Round {index}/{args.rounds} ===", file=sys.stderr, flush=True)
+        print(f"{'='*60}", file=sys.stderr, flush=True)
+
         round_ok = False
-        sys.stderr.write(f"\n[auto] ===== Round {index}/{args.rounds} =====\n")
-        sys.stderr.flush()
         for attempt in range(1, round_retries + 1):
+            cleanup_incomplete_round(run_dir)
             update_supervisor(
                 run_dir,
                 status="advancing_candidate",
@@ -123,29 +139,27 @@ def main() -> int:
             command = [
                 sys.executable,
                 str((Path(__file__).resolve().parent / "advance_candidate.py").resolve()),
-                "--manifest",
-                str(manifest_path),
-                "--run-dir",
-                str(run_dir),
+                "--manifest", str(manifest_path),
+                "--run-dir", str(run_dir),
             ]
             if args.strategy:
                 command.extend(["--strategy", args.strategy])
             try:
-                sys.stderr.write(f"[auto] Round {index}/{args.rounds}, attempt {attempt}/{round_retries}: advance\n")
-                sys.stderr.flush()
+                print(
+                    f"[auto] Advancing candidate (attempt {attempt}/{round_retries}) ...",
+                    file=sys.stderr, flush=True,
+                )
                 payload = run_json_command(command, cwd)
                 last_payload = payload
                 round_ok = True
-                sys.stderr.write(
-                    f"[auto] Round {index} complete: candidate={payload.get('candidate_id', '?')} "
-                    f"packet={payload.get('packet_id', '?')} "
-                    f"decision={payload.get('candidate', {}).get('decision', '?')}\n"
-                )
-                sys.stderr.flush()
                 break
             except Exception as exc:
-                sys.stderr.write(f"[auto] Round {index} attempt {attempt} failed: {exc}\n")
-                sys.stderr.flush()
+                print(
+                    f"[auto] Round {index} attempt {attempt}/{round_retries} FAILED: {exc}",
+                    file=sys.stderr, flush=True,
+                )
+                if attempt < round_retries:
+                    print(f"[auto] Retrying round {index} ...", file=sys.stderr, flush=True)
 
         if not round_ok:
             run_state_path = run_dir / "run-state.json"
@@ -154,12 +168,36 @@ def main() -> int:
             counters["crashes"] = int(counters.get("crashes", 0) or 0) + 1
             write_json(run_state_path, run_state)
             update_supervisor(run_dir, status="round_crashed", auto_round=index)
+            print(
+                f"[auto] Round {index} CRASHED after {round_retries} attempts. "
+                f"Continuing to next round.",
+                file=sys.stderr, flush=True,
+            )
             continue
 
+        candidate_id = payload.get("candidate_id", "?")
+        packet_id = payload.get("packet_id", "?")
+        candidate_decision = payload.get("candidate", {}).get("decision", "?")
+        reasons = payload.get("candidate", {}).get("decision_reasons", [])
+        print(
+            f"[auto] Round {index} complete: candidate={candidate_id} "
+            f"packet={packet_id} decision={candidate_decision} "
+            f"reasons={reasons}",
+            file=sys.stderr, flush=True,
+        )
+        if candidate_decision == "keep":
+            continue
+
+    # ── Phase 4: done ────────────────────────────────────────────────────
     update_supervisor(
         run_dir,
         status="auto_loop_completed",
         next_action="inspect best candidate and lessons",
+    )
+    print(
+        f"\n[auto] All rounds finished ({completed} resumed, "
+        f"{max(0, args.rounds - completed)} new).",
+        file=sys.stderr, flush=True,
     )
     print(
         json.dumps(

@@ -353,7 +353,7 @@ def run_external_canonicalizer(
         raise RuntimeError(
             f"Canonicalization script failed for case {case['case_id']}:\n"
             f"command={' '.join(command)}\n"
-            f"stderr={result.stderr}"
+            f"stdout={result.stdout}"
         )
     payload = read_json(output_file)
     return ensure_target_result_shape(case, payload, str(raw_file))
@@ -395,7 +395,7 @@ def run_grader(
         raise RuntimeError(
             f"Grader failed for split {split}:\n"
             f"command={' '.join(command)}\n"
-            f"stderr={result.stderr}"
+            f"stdout={result.stdout}"
         )
     return read_json(scoreboard_output)
 
@@ -514,7 +514,7 @@ def invoke_cli_json(
         raise RuntimeError(
             f"Target project command failed for case {case['case_id']}:\n"
             f"command={' '.join(command)}\n"
-            f"stderr={result.stderr}"
+            f"stdout={result.stdout}"
         )
 
     output_cfg = invocation.get("output", {})
@@ -694,8 +694,10 @@ def run_single_case(
     case_id = str(case.get("case_id"))
     cached_result = load_cached_result(run_dir, candidate_id, case) if reuse_completed_cases else None
     if cached_result is not None:
-        sys.stderr.write(f"[packet] {split} {case_index}/{total_cases} {case_id} cached\n")
-        sys.stderr.flush()
+        print(
+            f"    [{split} {case_index}/{total_cases}] case={case_id} (cached)",
+            file=sys.stderr, flush=True,
+        )
         write_case_status(
             run_dir,
             candidate_id,
@@ -714,8 +716,10 @@ def run_single_case(
 
     started_at = time.monotonic()
     last_error: str | None = None
-    sys.stderr.write(f"[packet] {split} {case_index}/{total_cases} {case_id} running\n")
-    sys.stderr.flush()
+    print(
+        f"    [{split} {case_index}/{total_cases}] case={case_id}",
+        file=sys.stderr, flush=True,
+    )
     for attempt in range(1, max_attempts + 1):
         try:
             result, backend_used = invoke_target_project(
@@ -745,11 +749,6 @@ def run_single_case(
                     "canonical_result_path": str(canonical_cache_path(run_dir, candidate_id, case_id)),
                 },
             )
-            sys.stderr.write(
-                f"[packet] {split} {case_index}/{total_cases} {case_id} completed "
-                f"attempt={attempt} backend={backend_used} elapsed={elapsed_seconds}s\n"
-            )
-            sys.stderr.flush()
             return case_index, result, None
         except Exception as exc:
             last_error = str(exc)
@@ -769,21 +768,27 @@ def run_single_case(
                 },
             )
             if attempt < max_attempts:
-                backoff_seconds = retry_backoff_seconds
                 if is_rate_limit_error(exc):
-                    backoff_seconds = min(max(retry_backoff_seconds, 5.0) * (2 ** (attempt - 1)), 60.0)
-                sys.stderr.write(
-                    f"[packet] {split} {case_id} attempt {attempt}/{max_attempts} failed, "
-                    f"retrying in {backoff_seconds:.1f}s: {last_error[:300]}\n"
-                )
-                sys.stderr.flush()
-                if backoff_seconds > 0:
-                    time.sleep(backoff_seconds)
+                    backoff = min(max(retry_backoff_seconds, 5.0) * (2 ** (attempt - 1)), 60.0)
+                    print(
+                        f"    [{split} {case_index}/{total_cases}] case={case_id} "
+                        f"rate limited, backoff {backoff:.1f}s (attempt {attempt}/{max_attempts})",
+                        file=sys.stderr, flush=True,
+                    )
+                    time.sleep(backoff)
+                else:
+                    if retry_backoff_seconds > 0:
+                        print(
+                            f"    [{split} {case_index}/{total_cases}] case={case_id} "
+                            f"attempt {attempt}/{max_attempts} failed, retrying in {retry_backoff_seconds:.1f}s",
+                            file=sys.stderr, flush=True,
+                        )
+                        time.sleep(retry_backoff_seconds)
             else:
-                sys.stderr.write(
-                    f"[packet] {split} {case_id} attempt {attempt}/{max_attempts} failed: {last_error[:500]}\n"
+                print(
+                    f"    [{split} {case_index}/{total_cases}] case={case_id} FAILED ({elapsed_seconds}s)",
+                    file=sys.stderr, flush=True,
                 )
-                sys.stderr.flush()
 
     return (
         case_index,
@@ -827,13 +832,11 @@ def main() -> int:
     total_cases = len(cases)
     indexed_results: List[tuple[int, Dict[str, Any]]] = []
 
-    sys.stderr.write(
-        f"[packet] {args.split} candidate={candidate_id} cases={total_cases} "
-        f"concurrency={case_concurrency} max_attempts={max_attempts}\n"
-    )
-    sys.stderr.flush()
-
     if case_concurrency > 1:
+        print(
+            f"    [{args.split}] running {total_cases} cases with concurrency={case_concurrency}",
+            file=sys.stderr, flush=True,
+        )
         prepare_invocation_environment(invocation)
         with ThreadPoolExecutor(max_workers=case_concurrency) as executor:
             futures = [
@@ -885,11 +888,6 @@ def main() -> int:
 
     canonical_results = [result for _, result in sorted(indexed_results, key=lambda item: item[0])]
 
-    sys.stderr.write(
-        f"[packet] {args.split} finished: {len(canonical_results)} ok, {len(failures)} failed\n"
-    )
-    sys.stderr.flush()
-
     results_dir = candidate_target_results_dir(run_dir, candidate_id)
     results_path = results_dir / f"{args.split}.results.jsonl"
     failures_path = results_dir / f"{args.split}.failures.jsonl"
@@ -897,6 +895,11 @@ def main() -> int:
     write_jsonl(failures_path, failures)
 
     grading_score = run_grader(run_dir, candidate_id, args.split, Path(args.manifest).resolve())
+    print(
+        f"    [{args.split}] done: {len(canonical_results)} ok / {len(failures)} failed "
+        f"f1={grading_score.get('f1', 0.0):.3f}",
+        file=sys.stderr, flush=True,
+    )
     update_scoreboard(run_dir, candidate_id, args.split, grading_score)
     update_run_state(
         run_dir,
