@@ -402,9 +402,21 @@ def maybe_extend_staged_splits(
 ) -> List[str]:
     if strategy != "staged":
         return []
-    decision = decide_candidate(manifest, scoreboard, candidate_id)
-    if decision["decision"] != "keep":
-        return []
+    current = scoreboard.get("current", {})
+    reference = scoreboard.get("best", {})
+    keep_gate = manifest.get("grading", {}).get("keep_gate", {})
+    if keep_gate.get("require_dev_improvement", True):
+        ok, _ = dev_improved(current, reference)
+        if not ok:
+            return []
+    if keep_gate.get("require_evidence_non_regression", True):
+        ok, _ = evidence_non_regression(current, reference, "dev")
+        if not ok:
+            return []
+    if keep_gate.get("require_high_confidence_fp_non_regression", True):
+        ok, _ = high_conf_fp_non_regression(current, reference, "dev")
+        if not ok:
+            return []
     return ["holdout", "cross_repo", "canary"]
 
 
