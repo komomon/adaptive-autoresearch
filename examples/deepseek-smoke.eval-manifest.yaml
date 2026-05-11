@@ -33,12 +33,12 @@ experiment:
         - Edit
         - MultiEdit
         - Write
-      permission_mode: default
+      permission_mode: acceptEdits
       thinking:
         type: adaptive
       effort: high
-      max_turns: 12
-      timeout_seconds: 3600
+      max_turns: 100
+      timeout_seconds: 7200
       heartbeat_interval: 60
       max_timeout_extensions: 1
       max_attempts: 2
@@ -52,7 +52,7 @@ experiment:
         model: deepseek-v4-pro
         api_key_env: ANTHROPIC_AUTH_TOKEN
         base_url: https://api.deepseek.com/anthropic
-        timeout_seconds: 120
+        timeout_seconds: 600
     result_contract: target-audit-result
     optimization_policy:
       methodology_first: true
@@ -142,9 +142,9 @@ optimization:
     model: deepseek-v4-pro
     api_key_env: ANTHROPIC_AUTH_TOKEN
     base_url: https://api.deepseek.com/anthropic
-    timeout_seconds: 120
-    permission_mode: default
-    max_turns: 8
+    timeout_seconds: 600
+    permission_mode: acceptEdits
+    max_turns: 50
     cwd: D:/ccode/aicode/gitcode/back/authscan-2
   apply:
     mode: claude-agent-sdk-python
@@ -161,8 +161,8 @@ optimization:
       - Edit
       - MultiEdit
       - Write
-    max_turns: 16
-    timeout_seconds: 300
+    max_turns: 50
+    timeout_seconds: 600
 
 outputs:
   run_root: ./autoresearch-results

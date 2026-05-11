@@ -41,8 +41,8 @@ experiment:
       thinking:
         type: adaptive
       effort: high
-      max_turns: 50
-      timeout_seconds: 3600
+      max_turns: 100
+      timeout_seconds: 7200
       max_attempts: 2
       retry_backoff_seconds: 2
       output:

@@ -40,17 +40,15 @@ experiment:
         - MultiEdit
         - Write
       permission_mode: acceptEdits
-      # Thinking & effort are passed through to claude-agent-sdk-python when supported.
-      # thinking:
-      #   type: adaptive
-      # effort: high
-      # For claude-agent-sdk-python you can also cap the loop:
-      # max_turns: 12
-      # timeout_seconds: 240
-      # heartbeat_interval: 60
-      # max_timeout_extensions: 1
-      # max_attempts: 2
-      # retry_backoff_seconds: 2
+      thinking:
+        type: adaptive
+      effort: high
+      max_turns: 100
+      timeout_seconds: 7200
+      heartbeat_interval: 60
+      max_timeout_extensions: 1
+      max_attempts: 2
+      retry_backoff_seconds: 2
       output:
         mode: text-stdout
       canonicalization:
@@ -60,7 +58,7 @@ experiment:
         api_key_env: ANTHROPIC_AUTH_TOKEN
         base_url: https://api.deepseek.com/anthropic
         cwd: ../your-target-project
-        # timeout_seconds: 120
+        timeout_seconds: 600
     result_contract: target-audit-result
     optimization_policy:
       methodology_first: true
@@ -203,7 +201,7 @@ optimization:
     model: deepseek-v4-pro
     api_key_env: ANTHROPIC_AUTH_TOKEN
     base_url: https://api.deepseek.com/anthropic
-    timeout_seconds: 120
+    timeout_seconds: 600
     temperature: 0.0
   apply:
     mode: claude-agent-sdk-python
@@ -219,8 +217,8 @@ optimization:
       - Edit
       - MultiEdit
       - Write
-    max_turns: 16
-    timeout_seconds: 300
+    max_turns: 50
+    timeout_seconds: 600
 
 outputs:
   run_root: ./autoresearch-results
