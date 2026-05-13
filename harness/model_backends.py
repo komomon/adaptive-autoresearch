@@ -132,13 +132,23 @@ def claude_agent_sdk_query(
     max_extensions = int(config.get("max_timeout_extensions", 1))
     heartbeat_interval = float(config.get("heartbeat_interval", 60))
 
+    sdk_status = {"waiting_first_message": True, "turns": 0, "last_tool": "", "last_tool_time": 0.0}
+
     async def _heartbeat_loop() -> None:
         start = asyncio.get_event_loop().time()
         try:
             while True:
                 await asyncio.sleep(heartbeat_interval)
                 elapsed = int(asyncio.get_event_loop().time() - start)
-                sys.stderr.write(f"  [heartbeat] {heartbeat_label} -- {elapsed}s elapsed\n")
+                parts = [f"{heartbeat_label} -- {elapsed}s elapsed"]
+                if sdk_status["waiting_first_message"]:
+                    parts.append("waiting for first response (model thinking or API queued)")
+                else:
+                    parts.append(f"turns={sdk_status['turns']}")
+                    if sdk_status["last_tool"]:
+                        tool_elapsed = int(asyncio.get_event_loop().time() - sdk_status["last_tool_time"])
+                        parts.append(f"last_tool={sdk_status['last_tool']} ({tool_elapsed}s ago)")
+                sys.stderr.write(f"  [heartbeat] {' | '.join(parts)}\n")
                 sys.stderr.flush()
         except asyncio.CancelledError:
             return
@@ -173,7 +183,9 @@ def claude_agent_sdk_query(
         turn = 0
         async for message in query(prompt=prompt, options=options):
             if isinstance(message, AssistantMessage):
+                sdk_status["waiting_first_message"] = False
                 turn += 1
+                sdk_status["turns"] = turn
                 for block in message.content:
                     if isinstance(block, TextBlock) and block.text and not quiet:
                         sys.stderr.write(f"[SDK turn {turn}] {block.text}\n")
@@ -182,6 +194,8 @@ def claude_agent_sdk_query(
                         _input = {k: v for k, v in block.input.items() if k != "command"} if isinstance(block.input, dict) else {}
                         _cmd = block.input.get("command", "") if isinstance(block.input, dict) else ""
                         _desc = _cmd[:120] if _cmd else str(_input)[:120]
+                        sdk_status["last_tool"] = f"{block.name}({_desc[:60]})"
+                        sdk_status["last_tool_time"] = asyncio.get_event_loop().time()
                         sys.stderr.write(f"[SDK turn {turn}] tool: {block.name}({_desc})\n")
                         sys.stderr.flush()
             elif isinstance(message, ResultMessage):
@@ -213,6 +227,7 @@ def claude_agent_sdk_query(
 
             extensions_used = 0
             while True:
+                sdk_status.update({"waiting_first_message": True, "turns": 0, "last_tool": "", "last_tool_time": 0.0})
                 heartbeat = asyncio.create_task(_heartbeat_loop())
                 try:
                     return await asyncio.wait_for(_stream_query(), timeout=timeout_seconds)

@@ -15,11 +15,40 @@ experiment:
     invocation:
       mode: claude-agent-sdk-python
       cwd: ../your-target-project
-      model: deepseek-v4-pro
-      api_key_env: ANTHROPIC_AUTH_TOKEN
+
+      # ── Connection ──────────────────────────────────────
+      model: deepseek-v4-pro                   # Model name (or use model_env for env var)
+      # model_env: MODEL_VAR                   #   Alternative: env var name for model
+      api_key_env: ANTHROPIC_AUTH_TOKEN         # Env var name holding the API key
       base_url: https://api.deepseek.com/anthropic
-      # The target project is invoked via claude-agent-sdk-python.
-      # Use allowed_tools, max_turns, and timeout_seconds to control behavior.
+      # base_url_env: BASE_URL_VAR             #   Alternative: env var name for base URL
+      # temperature: 0.0                       # Sampling temperature (0.0-1.0)
+
+      # ── Agent loop ─────────────────────────────────────
+      max_turns: 12                             # Max SDK agent turns per query
+      timeout_seconds: 3600                     # Total query timeout (seconds)
+      max_attempts: 2                           # Retry attempts on failure
+      retry_backoff_seconds: 2                  # Backoff between retries (seconds)
+      max_timeout_extensions: 1                 # Auto-extend timeout N times on expiry
+
+      # ── Thinking & effort ──────────────────────────────
+      # thinking:                               # Thinking mode config
+      #   type: adaptive                        #   disabled | enabled | adaptive
+      # effort: high                            # low | medium | high
+
+      # ── Tools & permissions ────────────────────────────
+      allowed_tools:
+        - Read
+        - Glob
+        - Grep
+        - Bash
+      permission_mode: acceptEdits              # default | acceptEdits | bypassPermissions
+
+      # ── Observability ──────────────────────────────────
+      # heartbeat_interval: 60                  # Heartbeat log interval (seconds)
+      # quiet: false                            # Suppress SDK output
+
+      # ── Prompts ────────────────────────────────────────
       prompt_template: |
         Use the target project's security audit skill or agent-team workflow to analyze exactly one case.
         Follow the target project's own methodology.
@@ -31,31 +60,45 @@ experiment:
         You are running inside the target audit project.
         Analyze one case only.
         Prefer method-driven reasoning over pattern shortcuts.
-      allowed_tools:
-        - Read
-        - Glob
-        - Grep
-        - Bash
-      permission_mode: acceptEdits
-      # Thinking & effort control (Claude Agent SDK):
-      # thinking:
-      #   type: adaptive
-      # effort: high
-      # For claude-agent-sdk-python you can also cap the loop:
-      # max_turns: 12
-      # timeout_seconds: 240
-      # max_attempts: 2
-      # retry_backoff_seconds: 2
+
+      # ── Output ─────────────────────────────────────────
       output:
         mode: text-stdout
+
+      # ── Canonicalization (second-pass LLM to normalize raw output) ──
       canonicalization:
         enabled: true
+        runner: script
+        script: ./harness/canonicalize_target_output.py
         mode: claude-agent-sdk-python
+
+        # Connection (falls back to invocation if not set)
         model: deepseek-v4-pro
         api_key_env: ANTHROPIC_AUTH_TOKEN
         base_url: https://api.deepseek.com/anthropic
         cwd: ../your-target-project
-        # timeout_seconds: 120
+
+        # Agent loop
+        timeout_seconds: 120                    # Canonicalization timeout (seconds)
+        # max_turns: 8                          # Max turns for canonicalization
+        # max_timeout_extensions: 1             # Auto-extend timeout N times
+
+        # Thinking & effort
+        # thinking:
+        #   type: adaptive
+        # effort: high
+
+        # Tools & permissions (defaults: all file tools + acceptEdits)
+        # allowed_tools:
+        #   - Read
+        #   - Glob
+        #   - Grep
+        #   - Bash
+        #   - Edit
+        #   - MultiEdit
+        #   - Write
+        # permission_mode: acceptEdits
+
     result_contract: target-audit-result
     optimization_policy:
       methodology_first: true
@@ -127,7 +170,8 @@ execution:
     - foreground
     - background
     - resume
-  resume_completed_cases: true
+  resume_completed_cases: true              # Skip cases with cached results
+  rerun_low_quality_cases: false            # Re-run cached cases with no evidence/artifacts
   case_concurrency: 3
   candidate_evaluation:
     strategy: staged
@@ -169,8 +213,60 @@ grading:
     require_dev_improvement: true
     require_holdout_non_regression: true
     require_cross_repo_non_regression: true
-    require_evidence_non_regression: true
+    require_evidence_non_regression: false  # true when dataset has vuln_function_or_line annotations
     require_high_confidence_fp_non_regression: true
+
+# ── Optimization model config ──────────────────────────────
+# Merge priority: invocation → optimization.model → proposal/apply stage override
+# Each stage inherits all keys from the layer below, then overrides with its own.
+optimization:
+  model:                                     # Shared base for propose & apply stages
+    model: glm-5.1
+    api_key_env: OPTIMIZATION_AUTH_TOKEN
+    base_url: https://openai.mybank.cn/api/anthropic
+    # timeout_seconds: 3600                  # Inherited by propose & apply unless overridden
+    # max_timeout_extensions: 1
+    # thinking:
+    #   type: adaptive
+    # effort: high
+
+  # Propose stage — generates methodology improvement packets from failure analysis.
+  # Inherits: invocation → optimization.model → this block
+  # proposal:
+  #   # Connection (inherits from optimization.model if not set)
+  #   # model: glm-5.1
+  #   # api_key_env: OPTIMIZATION_AUTH_TOKEN
+  #   # base_url: https://openai.mybank.cn/api/anthropic
+  #   # temperature: 0.0
+  #   permission_mode: default              # Propose is read-only analysis
+  #   max_turns: 8
+  #   timeout_seconds: 3600
+  #   max_timeout_extensions: 1
+  #   # thinking:
+  #   #   type: adaptive
+  #   # effort: high
+
+  # Apply stage — applies proposed edits to target project files.
+  # Inherits: invocation → optimization.model → this block
+  # apply:
+  #   # Connection (inherits from optimization.model if not set)
+  #   # model: glm-5.1
+  #   # api_key_env: OPTIMIZATION_AUTH_TOKEN
+  #   # base_url: https://openai.mybank.cn/api/anthropic
+  #   permission_mode: acceptEdits         # Apply needs file write permissions
+  #   allowed_tools:
+  #     - Read
+  #     - Glob
+  #     - Grep
+  #     - Edit
+  #     - MultiEdit
+  #     - Write
+  #   max_turns: 18
+  #   timeout_seconds: 3600
+  #   max_timeout_extensions: 1
+  #   # thinking:
+  #   #   type: adaptive
+  #   # effort: high
 
 meta_optimization:
   enabled: true
@@ -189,30 +285,6 @@ meta_optimization:
     - grading_rubric_meaning
     - vulnerability_taxonomy_semantics
     - hard_invariants
-
-optimization:
-  proposal:
-    mode: claude-agent-sdk-python
-    model: deepseek-v4-pro
-    api_key_env: ANTHROPIC_AUTH_TOKEN
-    base_url: https://api.deepseek.com/anthropic
-    timeout_seconds: 120
-    temperature: 0.0
-  apply:
-    mode: claude-agent-sdk-python
-    model: deepseek-v4-pro
-    api_key_env: ANTHROPIC_AUTH_TOKEN
-    base_url: https://api.deepseek.com/anthropic
-    permission_mode: acceptEdits
-    allowed_tools:
-      - Read
-      - Glob
-      - Grep
-      - Edit
-      - MultiEdit
-      - Write
-    max_turns: 16
-    timeout_seconds: 300
 
 outputs:
   run_root: ./autoresearch-results

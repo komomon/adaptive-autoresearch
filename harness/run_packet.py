@@ -46,6 +46,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", required=True, help="Split name: dev/holdout/cross_repo/canary.")
     parser.add_argument("--candidate-id", help="Optional candidate id override.")
     parser.add_argument("--limit", type=int, help="Optional maximum number of cases to run.")
+    parser.add_argument("--rerun-low-quality", action="store_true", help="Re-run cached cases with no evidence/artifacts.")
+    parser.add_argument("--force-rerun", action="store_true", help="Re-run ALL cases, ignoring cache.")
     return parser.parse_args()
 
 
@@ -156,7 +158,7 @@ def default_grade_script() -> Path:
     return (Path(__file__).resolve().parent / "grade_run.py").resolve()
 
 
-def load_cached_result(run_dir: Path, candidate_id: str, case: Dict[str, Any]) -> Dict[str, Any] | None:
+def load_cached_result(run_dir: Path, candidate_id: str, case: Dict[str, Any], *, rerun_low_quality: bool = False) -> Dict[str, Any] | None:
     path = canonical_cache_path(run_dir, candidate_id, str(case.get("case_id")))
     if not path.exists():
         return None
@@ -164,7 +166,15 @@ def load_cached_result(run_dir: Path, candidate_id: str, case: Dict[str, Any]) -
         payload = read_json(path)
     except Exception:
         return None
-    return ensure_target_result_shape(case, payload, str(payload.get("raw_output_ref", path)))
+    result = ensure_target_result_shape(case, payload, str(payload.get("raw_output_ref", path)))
+    if rerun_low_quality:
+        evidence = result.get("evidence", {})
+        has_evidence = bool(evidence.get("files") or evidence.get("functions") or evidence.get("locations"))
+        artifacts = result.get("artifacts", {})
+        has_artifacts = any(artifacts.get(k) for k in ("path_pack", "context_pack", "guard_pack", "evidence_pack"))
+        if not has_evidence and not has_artifacts:
+            return None
+    return result
 
 
 def write_case_status(
@@ -205,16 +215,27 @@ def run_external_canonicalizer(
         "--cwd",
         str(cwd),
     ]
-    for allowed_tool in canonical_cfg.get("allowed_tools", []):
+    default_tools = ["Read", "Glob", "Grep", "Bash", "Edit", "MultiEdit", "Write"]
+    allowed_tools = canonical_cfg.get("allowed_tools") or default_tools
+    for allowed_tool in allowed_tools:
         command.extend(["--allowed-tool", allowed_tool])
     if canonical_cfg.get("permission_mode"):
         command.extend(["--permission-mode", canonical_cfg["permission_mode"]])
+    else:
+        command.extend(["--permission-mode", "acceptEdits"])
     if canonical_cfg.get("prompt_file"):
         command.extend(["--prompt-file", canonical_cfg["prompt_file"]])
     if canonical_cfg.get("max_turns") is not None:
         command.extend(["--max-turns", str(canonical_cfg["max_turns"])])
     if canonical_cfg.get("timeout_seconds") is not None:
         command.extend(["--timeout-seconds", str(canonical_cfg["timeout_seconds"])])
+    if canonical_cfg.get("max_timeout_extensions") is not None:
+        command.extend(["--max-timeout-extensions", str(canonical_cfg["max_timeout_extensions"])])
+    thinking = canonical_cfg.get("thinking")
+    if thinking and isinstance(thinking, dict):
+        command.extend(["--thinking-type", thinking.get("type", "adaptive")])
+    if canonical_cfg.get("effort"):
+        command.extend(["--effort", canonical_cfg["effort"]])
 
     env_overrides: Dict[str, str | None] = {}
     mode = canonical_cfg.get("mode", "claude-agent-sdk-python")
@@ -424,7 +445,9 @@ def invoke_claude_agent_sdk_python(
     if system_prompt:
         effective_invocation["system_prompt"] = render_template(str(system_prompt), context)
     result_text = claude_agent_sdk_query(
-        prompt, cwd, effective_invocation, skip_env_setup=skip_env_setup,
+        prompt, cwd, effective_invocation,
+        heartbeat_label=f"case {case.get('case_id', '?')}",
+        skip_env_setup=skip_env_setup,
     )
     raw_dir = candidate_target_results_dir(run_dir, candidate_id) / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -484,12 +507,13 @@ def _run_single_case(
     retry_backoff_seconds: float,
     reuse_completed_cases: bool,
     skip_env_setup: bool,
+    rerun_low_quality: bool = False,
 ) -> tuple[Dict[str, Any] | None, Dict[str, Any] | None]:
     """Execute one case with retry. Returns (result, None) or (None, failure)."""
     case_id = str(case.get("case_id"))
 
     if reuse_completed_cases:
-        cached_result = load_cached_result(run_dir, candidate_id, case)
+        cached_result = load_cached_result(run_dir, candidate_id, case, rerun_low_quality=rerun_low_quality)
         if cached_result is not None:
             print(
                 f"    [{split_name} {case_index}/{total_cases}] case={case_id} (cached)",
@@ -576,8 +600,44 @@ def main() -> int:
     target_project = manifest.get("experiment", {}).get("target_project", {})
     invocation = target_project.get("invocation", {})
     execution_cfg = manifest.get("execution", {})
+
+    # ── Resolve candidate workspace ──────────────────────────────────
+    # When a specific candidate_id is given (e.g. regrade), use its
+    # optimized workspace as cwd instead of the manifest's original path.
+    candidate_workspace = run_dir / "candidates" / candidate_id / "workspace"
+    if candidate_workspace.is_dir():
+        invocation = dict(invocation)
+        invocation["cwd"] = str(candidate_workspace)
+        canonical_cfg = invocation.get("canonicalization")
+        if isinstance(canonical_cfg, dict):
+            canonical_cfg = dict(canonical_cfg)
+            canonical_cfg["cwd"] = str(candidate_workspace)
+            invocation["canonicalization"] = canonical_cfg
+        print(
+            f"    [workspace] using candidate workspace: {candidate_workspace}",
+            file=sys.stderr, flush=True,
+        )
     retry_cfg = execution_cfg.get("case_retry", {})
     reuse_completed_cases = bool(execution_cfg.get("resume_completed_cases", True))
+    if args.force_rerun:
+        reuse_completed_cases = False
+    rerun_low_quality = args.rerun_low_quality or bool(execution_cfg.get("rerun_low_quality_cases", False))
+
+    # ── Save current state pointers (to restore after regrade) ──────
+    scoreboard_path = run_dir / "scoreboard.json"
+    run_state_path = run_dir / "run-state.json"
+    prev_scoreboard_current = None
+    prev_run_state_current = None
+    prev_supervisor = None
+    if scoreboard_path.exists():
+        prev_scoreboard_current = read_json(scoreboard_path).get("current")
+    if run_state_path.exists():
+        rs = read_json(run_state_path)
+        prev_run_state_current = rs.get("current")
+        prev_supervisor = rs.get("supervisor")
+
+    is_regrade = candidate_workspace.is_dir()
+
     max_attempts = int(invocation.get("max_attempts", retry_cfg.get("max_attempts", 1)) or 1)
     retry_backoff_seconds = float(
         invocation.get("retry_backoff_seconds", retry_cfg.get("backoff_seconds", 0.0)) or 0.0
@@ -594,6 +654,7 @@ def main() -> int:
                 case, i, total_cases, args.split, invocation, manifest,
                 run_id, run_dir, candidate_id, max_attempts, retry_backoff_seconds,
                 reuse_completed_cases, skip_env_setup=False,
+                rerun_low_quality=rerun_low_quality,
             )
             if result is not None:
                 canonical_results.append(result)
@@ -613,6 +674,7 @@ def main() -> int:
                     case, i, total_cases, args.split, invocation, manifest,
                     run_id, run_dir, candidate_id, max_attempts, retry_backoff_seconds,
                     reuse_completed_cases, skip_env_setup=True,
+                    rerun_low_quality=rerun_low_quality,
                 )
                 futures[future] = case
 
@@ -647,6 +709,22 @@ def main() -> int:
         len(failures),
         grading_score,
     )
+
+    # ── Restore current pointers after regrade ──────────────────────
+    # Regrade updates scores correctly but should not move the
+    # scoreboard / run-state "current" pointer away from the real current.
+    if is_regrade and prev_scoreboard_current is not None:
+        scoreboard = read_json(scoreboard_path)
+        if scoreboard.get("current", {}).get("candidate_id") != prev_scoreboard_current.get("candidate_id"):
+            scoreboard["current"] = prev_scoreboard_current
+            write_json(scoreboard_path, scoreboard)
+    if is_regrade and prev_run_state_current is not None:
+        rs = read_json(run_state_path)
+        if rs.get("current", {}).get("candidate_id") != prev_run_state_current.get("candidate_id"):
+            rs["current"] = prev_run_state_current
+            if prev_supervisor is not None:
+                rs["supervisor"] = prev_supervisor
+            write_json(run_state_path, rs)
 
     print(
         f"    [{args.split}] done: {len(canonical_results)} ok / {len(failures)} failed "

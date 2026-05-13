@@ -1,0 +1,4 @@
+# Core dependencies
+claude-agent-sdk
+pyyaml
+openpyxl

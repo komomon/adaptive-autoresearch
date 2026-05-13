@@ -58,8 +58,8 @@ def build_failure_bundle(run_dir: Path, candidate_id: str, split: str) -> List[D
         needs_optimization = (
             not bool(row.get("verdict_match", False))
             or not bool(row.get("type_match", True))
-            or float(row.get("evidence_adequacy", 0.0) or 0.0) < 1.0
-            or float(row.get("chain_completeness", 0.0) or 0.0) < 1.0
+            or float(row.get("evidence_adequacy", 0.0) or 0.0) < 0.5
+            or float(row.get("chain_completeness", 0.0) or 0.0) < 0.25
         )
         if not needs_optimization:
             continue
@@ -86,27 +86,29 @@ def build_failure_bundle(run_dir: Path, candidate_id: str, split: str) -> List[D
     return failures
 
 
+def _optimization_model_base(manifest: Dict[str, Any]) -> Dict[str, Any]:
+    base = manifest.get("optimization", {}).get("model")
+    return dict(base) if isinstance(base, dict) else {}
+
+
 def default_proposal_config(manifest: Dict[str, Any]) -> Dict[str, Any]:
+    invocation = manifest.get("experiment", {}).get("target_project", {}).get("invocation", {})
+    opt_base = _optimization_model_base(manifest)
     explicit = manifest.get("optimization", {}).get("proposal")
     if isinstance(explicit, dict):
-        explicit.setdefault("timeout_seconds", 3600)
-        explicit.setdefault("max_timeout_extensions", 1)
-        return explicit
-    invocation = manifest.get("experiment", {}).get("target_project", {}).get("invocation", {})
-    if isinstance(invocation, dict) and invocation.get("mode") == "claude-agent-sdk-python":
+        cfg = {**invocation, **opt_base, **explicit}
+    elif opt_base:
+        cfg = {**invocation, **opt_base}
+    elif isinstance(invocation, dict) and invocation.get("mode") == "claude-agent-sdk-python":
         cfg = dict(invocation)
-        cfg.setdefault("permission_mode", "default")
-        cfg.setdefault("max_turns", 8)
-        cfg.setdefault("timeout_seconds", 3600)
-        cfg.setdefault("max_timeout_extensions", 1)
-        return cfg
-    return {
-        "mode": "claude-agent-sdk-python",
-        "permission_mode": "default",
-        "max_turns": 8,
-        "timeout_seconds": 3600,
-        "max_timeout_extensions": 1,
-    }
+    else:
+        cfg = {}
+    cfg.setdefault("mode", "claude-agent-sdk-python")
+    cfg.setdefault("permission_mode", "default")
+    cfg.setdefault("max_turns", 8)
+    cfg.setdefault("timeout_seconds", 3600)
+    cfg.setdefault("max_timeout_extensions", 1)
+    return cfg
 
 
 def render_batch_analysis_prompt(
